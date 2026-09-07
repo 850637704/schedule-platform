@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>课表管理平台</title>
+  <link rel="stylesheet" href="/css/style.css?v=20260904q">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">
+        <img class="logo-icon" src="logo.jpg" alt="logo">
+        <span class="logo-text">课表管理平台</span>
+      </div>
+      <nav class="nav">
+        <a href="#" class="nav-item active" data-view="upload">上传课表</a>
+        <a href="#" class="nav-item" data-view="overview">总览</a>
+        <a href="#" class="nav-item" data-view="class">班级课表</a>
+        <a href="#" class="nav-item" data-view="teacher">教师课表</a>
+        <a href="#" class="nav-item" data-view="stats">课时统计</a>
+        <a href="#" class="nav-item" data-view="analysis">冲突分析</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div id="data-status" class="data-status">未上传课表</div>
+      </div>
+    </aside>
+
+    <main class="content">
+            <!-- 上传课表 -->
+      <section id="view-upload" class="view active">
+        <h1>上传课表</h1>
+        <p class="hint">支持 Excel(.xlsx/.xls) 和 CSV 文件。请先下载模板了解格式要求。</p>
+        <div class="upload-actions">
+          <a href="/api/template" class="btn btn-outline">⬇ 下载模板</a>
+        </div>
+        <div id="drop-zone" class="drop-zone">
+          <div class="drop-icon">📄</div>
+          <p>将课表文件拖到此处，或点击选择文件</p>
+          <input type="file" id="file-input" accept=".xlsx,.xls,.csv" hidden>
+          <button class="btn btn-primary" id="select-btn">选择文件</button>
+        </div>
+        <div id="upload-result" class="upload-result"></div>
+      </section>
+
+      <!-- 总览 -->
+      <section id="view-overview" class="view">
+        <h1>总览</h1>
+        <div id="overview-cards" class="stat-cards"></div>
+        <div class="card">
+          <h2>课表信息</h2>
+          <div id="overview-info"></div>
+        </div>
+        <div class="export-bar">
+          <button class="btn btn-primary" onclick="window.open('/api/export/classes','_blank')">导出全部班级课表</button>
+          <button class="btn btn-primary" onclick="window.open('/api/export/teachers','_blank')">导出全部教师课表</button>
+        </div>
+      </section>
+
+      <!-- 班级课表 -->
+      <section id="view-class" class="view">
+        <h1>班级课表</h1>
+        <div class="filter-bar">
+          <div id="week-bar" class="week-bar" style="display:none">
+            <label>周次：
+              <select id="week-select"></select>
+            </label>
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">班级：</label>
+            <div class="combobox" data-target="class-select">
+              <div class="combobox-input-wrap">
+                <input type="text" class="combobox-input" id="class-select" placeholder="输入班级/数字，或点▾选择" autocomplete="off">
+                <button class="combobox-toggle" type="button" tabindex="-1" title="点击展开全部班级，鼠标选择">▾</button>
+              </div>
+              <div class="combobox-dropdown" id="class-select-dropdown"></div>
+            </div>
+          </div>
+          <button class="btn btn-outline" id="class-export-btn">导出该班课表</button>
+        </div>
+        <div id="class-teachers" class="teacher-config-wrap"></div>
+        <div id="class-grid" class="schedule-grid-wrap"></div>
+      </section>
+
+      <!-- 教师课表 -->
+      <section id="view-teacher" class="view">
+        <h1>教师课表</h1>
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label class="filter-label">教师：</label>
+            <div class="combobox" data-target="teacher-select">
+              <div class="combobox-input-wrap">
+                <input type="text" class="combobox-input" id="teacher-select" placeholder="输入姓名/拼音，或点▾选择" autocomplete="off">
+                <button class="combobox-toggle" type="button" tabindex="-1" title="点击展开全部教师，鼠标选择">▾</button>
+              </div>
+              <div class="combobox-dropdown" id="teacher-select-dropdown"></div>
+            </div>
+          </div>
+          <button class="btn btn-outline" id="teacher-export-btn">导出该教师课表</button>
+        </div>
+        <div id="teacher-grid" class="schedule-grid-wrap"></div>
+      </section>
+
+      <!-- 课时统计 -->
+      <section id="view-stats" class="view">
+        <h1>课时统计</h1>
+        <div class="filter-bar"></div>
+        <div class="tabs">
+          <button class="tab active" data-tab="teacher-stats">教师课时统计</button>
+          <button class="tab" data-tab="class-stats">班级课时统计</button>
+        </div>
+        <div class="export-bar">
+          <button class="btn btn-primary" onclick="window.open('/api/export/teacher-stats','_blank')">导出教师课时统计</button>
+        </div>
+        <div id="tab-teacher-stats" class="tab-content active">
+          <div id="teacher-stats-table" class="table-wrap"></div>
+        </div>
+        <div id="tab-class-stats" class="tab-content">
+          <div id="class-stats-table" class="table-wrap"></div>
+        </div>
+      </section>
+
+      <!-- 冲突分析 -->
+      <section id="view-analysis" class="view">
+        <h1>冲突分析</h1>
+        <div class="filter-bar">
+          <button class="btn btn-primary" id="run-analysis">运行分析</button>
+        </div>
+        <div id="analysis-summary" class="stat-cards"></div>
+        <div id="analysis-detail" class="analysis-detail"></div>
+      </section>
+
+      <div id="toast" class="toast"></div>
+    </main>
+  </div>
+  <script src="/js/app.js?v=20260904q"></script>
+</body>
+</html>

@@ -1,0 +1,649 @@
+:root {
+  --primary: #4472C4;
+  --primary-dark: #2F5496;
+  --primary-light: #D9E1F2;
+  --bg: #f5f6fa;
+  --card-bg: #fff;
+  --text: #1a1a2e;
+  --text-light: #6c757d;
+  --border: #e0e3eb;
+  --danger: #e74c3c;
+  --warning: #f39c12;
+  --success: #27ae60;
+  --shadow: 0 2px 8px rgba(0,0,0,0.06);
+  --radius: 10px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.app { display: flex; min-height: 100vh; }
+
+/* Sidebar */
+.sidebar {
+  width: 220px;
+  background: var(--primary-dark);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  height: 100vh;
+  left: 0;
+  top: 0;
+}
+
+.logo {
+  padding: 22px 20px;
+  font-size: 17px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.logo-icon { width: 32px; height: 32px; border-radius: 8px; object-fit: cover; }
+
+.nav { flex: 1; padding: 12px 0; }
+
+.nav-item {
+  display: block;
+  padding: 12px 24px;
+  color: rgba(255,255,255,0.8);
+  text-decoration: none;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+}
+.nav-item:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.nav-item.active {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border-left-color: #fff;
+}
+
+.sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.1); }
+.data-status {
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 6px;
+  text-align: center;
+}
+.data-status.active { color: #6ee7b7; background: rgba(110,231,183,0.15); }
+
+/* Content */
+.content { flex: 1; margin-left: 220px; padding: 18px clamp(14px, 1.8vw, 32px); min-height: 100vh; }
+
+.week-bar {
+  margin-bottom: 0;
+  padding: 2px 6px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.week-bar label { font-weight: 600; }
+.week-bar select {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.view { display: none; width: 100%; }
+.view.active { display: block; animation: fadeIn 0.25s; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+h1 { font-size: 22px; margin-bottom: 6px; }
+h2 { font-size: 17px; margin-bottom: 14px; }
+.hint { color: var(--text-light); margin-bottom: 16px; }
+
+/* Cards */
+.card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+}
+
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.stat-card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  box-shadow: var(--shadow);
+}
+.stat-card .num { font-size: 30px; font-weight: 700; color: var(--primary); }
+.stat-card .label { font-size: 13px; color: var(--text-light); margin-top: 4px; }
+.stat-card.danger .num { color: var(--danger); }
+.stat-card.warning .num { color: var(--warning); }
+.stat-card.success .num { color: var(--success); }
+
+/* Upload */
+.upload-actions { margin-bottom: 16px; }
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 50px 20px;
+  text-align: center;
+  background: var(--card-bg);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+.drop-icon { font-size: 48px; margin-bottom: 12px; }
+.drop-zone p { color: var(--text-light); margin-bottom: 16px; }
+
+.upload-result { margin-top: 18px; }
+.upload-result .alert {
+  padding: 14px 18px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.alert-success { background: #e8f8ee; color: var(--success); border: 1px solid #b7ebc6; }
+.alert-error { background: #fdecea; color: var(--danger); border: 1px solid #f5c6cb; }
+
+/* Buttons */
+.btn {
+  display: inline-block;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s;
+  background: var(--border);
+  color: var(--text);
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-dark); }
+.btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
+.btn-outline:hover { background: var(--primary-light); }
+
+.export-bar { margin: 18px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* Filter bar */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.filter-bar label { font-weight: 600; }
+/* 班级/教师选择：外观与周次选择框（.week-bar）一致——单框、label 在前 */
+.filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 13px;
+  padding: 2px 6px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.filter-group:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(68,114,196,0.12);
+}
+.filter-group .filter-label { white-space: nowrap; font-weight: 600; }
+/* combobox 输入框保留内边框，与周次选择框 select 的内边框一致 */
+.filter-group .combobox-input-wrap {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+.filter-group .combobox-input-wrap:focus-within {
+  border-color: var(--primary);
+}
+.filter-bar select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: clamp(160px, 20vw, 240px);
+  background: #fff;
+  max-width: 100%;
+}
+
+/* Schedule grid - 自适应 + 表头/首列固定 */
+.schedule-grid-wrap {
+  width: 100%;
+  /* 视口高度 - 标题/筛选栏/padding 约 200px，让表格在剩余空间内滚动 */
+  max-height: calc(100vh - 160px);
+  overflow: auto;                    /* 横向+纵向都支持滚动 */
+  -webkit-overflow-scrolling: touch;
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  position: relative;
+}
+.schedule-grid {
+  width: 100%;
+  border-collapse: separate;         /* 改为 separate，sticky 才能生效 */
+  border-spacing: 0;
+  background: var(--card-bg);
+  table-layout: fixed;
+}
+/* 表头固定：横向滚动时左侧固定，纵向滚动时顶部固定 */
+.schedule-grid th {
+  height: 48px;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  padding: clamp(6px, 0.8vw, 10px) clamp(2px, 0.5vw, 6px);
+  font-size: clamp(12px, 1vw, 14px);
+  white-space: nowrap;
+  border: 1px solid var(--border);
+}
+/* 首列（节次）固定：横向滚动时保持可见 */
+.schedule-grid th:first-child,
+.schedule-grid td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: clamp(58px, 10%, 120px);
+  font-weight: 600;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-size: clamp(12px, 0.95vw, 14px);
+  white-space: nowrap;
+  border: 1px solid var(--border);
+}
+/* 左上角单元格 z-index 最高 */
+.schedule-grid th:first-child {
+  z-index: 4;
+}
+.schedule-grid td {
+  border: 1px solid var(--border);
+  padding: clamp(2px, 0.4vw, 5px) clamp(2px, 0.4vw, 5px);
+  text-align: center;
+  vertical-align: middle;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  background: var(--card-bg);
+  /* 统一行高：无论有无课程，每行高度一致 */
+  height: 48px;
+}
+.schedule-grid .cell-has {
+  background: #f8f9ff;
+  padding: clamp(2px, 0.5vw, 6px) clamp(2px, 0.4vw, 5px);
+}
+.schedule-grid tbody { background: var(--card-bg); }
+.schedule-grid .cell-empty { color: var(--border); }
+/* 会议水印：教师需参加会议但该节无课时，以水印形式显示会议名 */
+.schedule-grid td.cell-meeting {
+  position: relative;
+  background: #fffbe6;
+}
+.schedule-grid .meeting-watermark {
+  font-size: clamp(10px, 0.75vw, 12px);
+  color: rgba(212, 136, 6, 0.45);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+}
+/* 冲突单元格：教师在同一节课教多个班级 */
+.schedule-grid .cell-conflict {
+  background: #fdecea;
+  border: 2px solid var(--danger);
+  padding: clamp(2px, 0.5vw, 6px) clamp(2px, 0.4vw, 5px);
+}
+.schedule-grid .cell-conflict .cell-class {
+  color: var(--danger);
+  font-weight: 600;
+}
+/* 会议冲突高亮（橙色，与重课冲突的红色区分） */
+.schedule-grid .cell-meeting-conflict {
+  background: #fef5e7;
+  border: 2px solid var(--warning);
+  padding: clamp(2px, 0.5vw, 6px) clamp(2px, 0.4vw, 5px);
+}
+.schedule-grid .cell-meeting-conflict .cell-subject,
+.schedule-grid .cell-meeting-conflict .cell-class {
+  color: #d48806;
+  font-weight: 700;
+}
+.cell-subject {
+  font-weight: 600;
+  color: var(--primary-dark);
+  font-size: clamp(11px, 0.95vw, 14px);
+  line-height: 1.2;
+}
+.cell-teacher {
+  font-size: clamp(10px, 0.8vw, 12px);
+  color: var(--text-light);
+  margin-top: 1px;
+  line-height: 1.2;
+}
+.cell-class {
+  font-size: clamp(10px, 0.8vw, 12px);
+  color: var(--text-light);
+  margin-top: 1px;
+  line-height: 1.2;
+}
+.cell-location {
+  font-size: clamp(9px, 0.75vw, 11px);
+  color: #aaa;
+  margin-top: 2px;
+}
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid var(--border); }
+.tab {
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-light);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+.tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; }
+table.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+table.data-table th, table.data-table td {
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  text-align: left;
+}
+table.data-table th {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+}
+table.data-table tr:nth-child(even) td { background: #f8f9fb; }
+table.data-table tr:hover td { background: var(--primary-light); }
+.bar {
+  height: 22px;
+  background: var(--primary);
+  border-radius: 4px;
+  display: inline-block;
+  min-width: 2px;
+}
+
+/* Analysis */
+.analysis-detail { margin-top: 16px; }
+.conflict-item {
+  background: var(--card-bg);
+  border-left: 4px solid var(--danger);
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+}
+.conflict-item.warning { border-left-color: var(--warning); }
+.conflict-type {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 8px;
+}
+.conflict-type.teacher { background: #fdecea; color: var(--danger); }
+.conflict-type.class { background: #fef3e0; color: var(--warning); }
+.conflict-type.room { background: #e8f4fd; color: #2980b9; }
+.conflict-type.meeting { background: #fef3e0; color: #e67e22; }
+.conflict-detail { margin: 8px 0; }
+.conflict-entries { font-size: 12px; color: var(--text-light); }
+.conflict-entries span { display: inline-block; margin-right: 14px; }
+
+.no-data { text-align: center; padding: 60px 20px; color: var(--text-light); }
+.no-data .icon { font-size: 48px; margin-bottom: 12px; }
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  padding: 12px 20px;
+  background: var(--text);
+  color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.25s;
+  pointer-events: none;
+  z-index: 999;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.error { background: var(--danger); }
+.toast.success { background: var(--success); }
+
+@media (max-width: 768px) {
+  .sidebar { width: 60px; }
+  .logo-text, .nav-item, .data-status { display: none; }
+  .logo { justify-content: center; padding: 22px 0; }
+  .content { margin-left: 60px; padding: 18px; }
+}
+/* 班级教师配置表：科目前行=课表表头风格（蓝底白字），教师行=课表内容风格（浅蓝灰字）
+   border-collapse 合并中间双边框为1px，精确等于课表内容单元格的行高（~36.914px） */
+.teacher-config-wrap {
+  margin-bottom: 8px;
+  width: 100%;
+  max-height: none;
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  position: relative;
+}
+.teacher-config-table {
+  width: 100%;
+  border-collapse: collapse;   /* 关键：两行中间的边框合并为1px */
+  border-spacing: 0;
+  background: var(--card-bg);
+  table-layout: fixed;
+}
+/* 基础边框（统一 1px） */
+.teacher-config-table td {
+  border: 1px solid var(--border);
+  text-align: center;
+  vertical-align: middle;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+/* 左侧占位列（占10%，和课表节次列同宽）：无内容，风格=课表的节次列背景色(蓝淡) */
+.teacher-config-table .tc-td-ghost {
+  background: var(--primary-light);
+  color: transparent;
+  user-select: none;
+}
+/* 科目前行 td：蓝底白字（与课表表头th同色）；字号与课表 cell-subject 一致；
+   padding +0.5px 为实测对齐值（抵消 DPR/border-collapse 的亚像素盒高偏移） */
+.teacher-config-table .tc-td-subj {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: clamp(11px, 0.95vw, 14px);
+  line-height: 1.2;
+  white-space: nowrap;
+  padding: calc(clamp(2px, 0.5vw, 6px) + 0.5px) clamp(2px, 0.4vw, 5px) 0;
+}
+/* 教师行 td：浅蓝底（与课表 .cell-has 同色）；字号字色与课表 .cell-teacher 一致 */
+.teacher-config-table .tc-td-tea {
+  background: #f8f9ff;
+  color: var(--text-light);
+  font-weight: 500;
+  font-size: clamp(10px, 0.8vw, 12px);
+  line-height: 1.2;
+  white-space: nowrap;
+  padding: 0 clamp(2px, 0.4vw, 5px) calc(clamp(2px, 0.5vw, 6px) + 0.5px);
+}
+/* 空单元格（无色透明，占位） */
+.teacher-config-table .tc-td-empty {
+  background: transparent;
+  color: transparent;
+}
+/* 单元格悬停高亮：班级课表、教师课表
+   排除：表头th（周一~周天）、首列节次（节次~晚4）、空单元格 */
+.schedule-grid td:hover:not(.cell-empty):not(:first-child) {
+  background: #fff4a1 !important;
+  box-shadow: inset 0 0 0 2px var(--primary);
+  cursor: default;
+}
+
+/* 任课教师表悬停高亮：仅教师名行（tc-td-tea）生效
+   排除：科目行（班主任/语文等）、占位列、空单元格 */
+.teacher-config-table .tc-td-tea:hover {
+  background: #fff4a1 !important;
+  box-shadow: inset 0 0 0 2px var(--primary);
+  cursor: default;
+}
+
+
+/* ====== 可搜索的班级/教师选择 Combobox（扁平化+圆角，与课表同风格） ====== */
+.combobox {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  width: clamp(110px, 14vw, 180px);
+  vertical-align: middle;
+}
+.combobox-input-wrap {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.combobox-input-wrap:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(68,114,196,0.12);
+}
+.combobox-input {
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  background: transparent;
+  color: var(--text);
+}
+.combobox-input::placeholder { color: var(--text-light); font-size: 12.5px; }
+.combobox-toggle {
+  border: none;
+  background: transparent;
+  color: var(--text-light);
+  padding: 8px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+  border-left: 1px solid var(--border);
+}
+.combobox-toggle:hover { color: var(--primary); background: var(--primary-light); }
+
+.combobox-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  z-index: 50;
+  display: none;
+}
+.combobox-dropdown.open { display: block; }
+.combobox-item {
+  padding: 9px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f2f6;
+  color: var(--text);
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 0.1s;
+  text-overflow: ellipsis;
+}
+.combobox-item:last-child { border-bottom: none; }
+.combobox-item:hover, .combobox-item.active { background: var(--primary-light); color: var(--primary-dark); }
+.combobox-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-light);
+  font-size: 13px;
+}
+.combobox-item mark {
+  background: #fff4a1;
+  color: var(--text);
+  padding: 0 1px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+.combobox-group-title {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background: #eef3fb;
+  border-bottom: 1px solid #e4eaf4;
+  letter-spacing: 0.5px;
+}
+
+
+/* ====== 班级/教师筛选标签（单一搜索框 + ▾ 鼠标选择按钮）====== */
+.filter-label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}

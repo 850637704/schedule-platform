@@ -1,0 +1,19 @@
+{
+  "name": "schedule-platform",
+  "version": "1.0.0",
+  "description": "课表管理平台：上传、分离班级/教师课表、课时统计、冲突分析、导出",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["课表", "schedule", "排课", "班级", "教师"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "xlsx": "^0.18.5"
+  }
+}
