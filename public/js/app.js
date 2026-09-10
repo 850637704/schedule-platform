@@ -5,6 +5,9 @@ let weeksList = [];         // 可用周次列表
 let activeView = 'upload';  // 当前激活的视图
 let lastClassSel = '';      // 上次选中的班级
 let lastTeacherSel = '';    // 上次选中的教师
+let activeStatsTab = 'teacher-stats'; // 课时统计当前 tab
+let lastStatsTeacherSel = '';  // 课时统计-教师筛选
+let lastStatsClassSel = '';    // 课时统计-班级筛选
 
 // ===== 调课状态 =====
 let swapState = {
@@ -482,17 +485,72 @@ function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts,
 
 // ===== 课时统计 =====
 async function loadStats() {
-  loadTeacherStats();
-  loadClassStats();
+  // 初始化教师/班级筛选组合框（只在首次加载时初始化）
+  await initStatsFilter();
+  updateStatsFilterVisibility();
+  loadTeacherStats(lastStatsTeacherSel);
+  loadClassStats(lastStatsClassSel);
 }
 
-async function loadTeacherStats() {
+// 初始化课时统计的教师/班级筛选组合框
+async function initStatsFilter() {
+  const tInput = $('#stats-teacher-select');
+  const cInput = $('#stats-class-select');
+  if (!tInput.dataset.inited) {
+    const data = await api('/api/teachers' + weekParam());
+    if (!data.error && data.teachers) {
+      const all = data.teachers.slice().sort();
+      initCombobox('stats-teacher-select', all, lastStatsTeacherSel, (val) => {
+        lastStatsTeacherSel = val;
+        loadTeacherStats(val);
+      }, groupTeachers);
+      // 用户清空输入框时，清除筛选并展示全部教师
+      tInput.addEventListener('input', () => {
+        if (!tInput.value.trim()) {
+          tInput._value = '';
+          lastStatsTeacherSel = '';
+          loadTeacherStats('');
+        }
+      });
+      tInput.dataset.inited = 1;
+    }
+  }
+  if (!cInput.dataset.inited) {
+    const data = await api('/api/classes' + weekParam());
+    if (!data.error && data.classes) {
+      const all = data.classes.slice().sort();
+      initCombobox('stats-class-select', all, lastStatsClassSel, (val) => {
+        lastStatsClassSel = val;
+        loadClassStats(val);
+      }, groupClasses);
+      // 用户清空输入框时，清除筛选并展示全部班级
+      cInput.addEventListener('input', () => {
+        if (!cInput.value.trim()) {
+          cInput._value = '';
+          lastStatsClassSel = '';
+          loadClassStats('');
+        }
+      });
+      cInput.dataset.inited = 1;
+    }
+  }
+}
+
+// 根据当前统计 tab 切换显示对应的筛选框
+function updateStatsFilterVisibility() {
+  $('#stats-teacher-group').style.display = activeStatsTab === 'teacher-stats' ? '' : 'none';
+  $('#stats-class-group').style.display = activeStatsTab === 'class-stats' ? '' : 'none';
+}
+
+async function loadTeacherStats(filter) {
   const data = await api('/api/statistics/teachers' + weekParam());
   if (data.error || !data.teachers.length) { $('#teacher-stats-table').innerHTML = noDataHtml(); return; }
-  const maxHours = Math.max(...data.teachers.map(t => t.weeklyHours), 1);
-  const dayCount = Math.max(...data.teachers.map(t => Object.keys(t.dailyDistribution || {}).map(Number).filter(k => (t.dailyDistribution[k] || 0) > 0).pop() || 5), 5);
-  let html = '<table class="data-table"><thead><tr><th>教师</th><th>早自习</th><th>白课</th><th>晚自习</th><th>周课时</th><th>月课时(约)</th><th>班级数</th><th>科目数</th><th>每日分布</th><th>班级</th><th>科目</th></tr></thead><tbody>';
-  for (const t of data.teachers) {
+  const teachers = filter ? data.teachers.filter(t => t.teacher === filter) : data.teachers;
+  if (!teachers.length) { $('#teacher-stats-table').innerHTML = `<div class="no-data"><div class="icon">🔍</div><p>未找到匹配「${escapeHtml(filter)}」的教师</p></div>`; return; }
+  const maxHours = Math.max(...teachers.map(t => t.weeklyHours), 1);
+  const dayCount = Math.max(...teachers.map(t => Object.keys(t.dailyDistribution || {}).map(Number).filter(k => (t.dailyDistribution[k] || 0) > 0).pop() || 5), 5);
+  let html = '<table class="data-table"><thead><tr><th>教师</th><th>早自习</th><th>白课</th><th>晚自习</th><th>班会</th><th>自习</th><th>周课时</th><th>月课时(约)</th><th>班级数</th><th>科目数</th><th>每日分布</th><th>班级</th><th>科目</th></tr></thead><tbody>';
+  for (const t of teachers) {
     const dist = [];
     for (let wd = 1; wd <= dayCount; wd++) dist.push(t.dailyDistribution[wd] || 0);
     html += `<tr>
@@ -500,6 +558,8 @@ async function loadTeacherStats() {
       <td>${t.morningHours || 0}</td>
       <td>${t.dayHours || 0}</td>
       <td>${t.eveningHours || 0}</td>
+      <td>${t.classMeetingHours || 0}</td>
+      <td>${t.selfStudyHours || 0}</td>
       <td><strong>${t.weeklyHours}</strong></td>
       <td>${t.monthlyHours}</td>
       <td>${t.classCount}</td>
@@ -512,7 +572,7 @@ async function loadTeacherStats() {
   html += '</tbody></table>';
   html += '<h2 style="margin-top:24px">周课时分布图</h2>';
   html += '<div style="display:flex;flex-direction:column;gap:8px">';
-  for (const t of data.teachers) {
+  for (const t of teachers) {
     const w = Math.round(t.weeklyHours / maxHours * 100);
     html += `<div style="display:flex;align-items:center;gap:10px">
       <div style="width:80px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(t.teacher)}</div>
@@ -524,18 +584,20 @@ async function loadTeacherStats() {
   $('#teacher-stats-table').innerHTML = html;
 }
 
-async function loadClassStats() {
+async function loadClassStats(filter) {
   const data = await api('/api/statistics/classes' + weekParam());
   if (data.error || !data.classes.length) { $('#class-stats-table').innerHTML = noDataHtml(); return; }
-  const maxHours = Math.max(...data.classes.map(c => c.weeklyHours), 1);
+  const classes = filter ? data.classes.filter(c => c.class === filter) : data.classes;
+  if (!classes.length) { $('#class-stats-table').innerHTML = `<div class="no-data"><div class="icon">🔍</div><p>未找到匹配「${escapeHtml(filter)}」的班级</p></div>`; return; }
+  const maxHours = Math.max(...classes.map(c => c.weeklyHours), 1);
   let html = '<table class="data-table"><thead><tr><th>班级</th><th>早自习</th><th>白课</th><th>晚自习</th><th>周课时</th></tr></thead><tbody>';
-  for (const c of data.classes) {
+  for (const c of classes) {
     html += `<tr><td>${escapeHtml(c.class)}</td><td>${c.morningHours || 0}</td><td>${c.dayHours || 0}</td><td>${c.eveningHours || 0}</td><td><strong>${c.weeklyHours}</strong></td></tr>`;
   }
   html += '</tbody></table>';
   html += '<h2 style="margin-top:24px">班级周课时分布图</h2>';
   html += '<div style="display:flex;flex-direction:column;gap:8px">';
-  for (const c of data.classes) {
+  for (const c of classes) {
     const w = Math.round(c.weeklyHours / maxHours * 100);
     html += `<div style="display:flex;align-items:center;gap:10px">
       <div style="width:100px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.class)}</div>
@@ -554,6 +616,8 @@ $$('.tab').forEach(tab => {
     tab.classList.add('active');
     $$('.tab-content').forEach(c => c.classList.remove('active'));
     $('#tab-' + tab.dataset.tab).classList.add('active');
+    activeStatsTab = tab.dataset.tab;
+    updateStatsFilterVisibility();
   });
 });
 

@@ -356,16 +356,35 @@ async function exportTeacherStatistics(stats) {
   const wb = new ExcelJS.Workbook();
   wb.creator = '课表管理平台';
   const sheet = wb.addWorksheet('教师课时统计');
-  sheet.addRow(['教师', '周课时', '月课时(约)', '涉及班级数', '涉及科目数', '班级列表', '科目列表']);
+  sheet.addRow(['教师', '早自习', '白课', '晚自习', '班会', '自习', '周课时', '月课时(约)', '班级数', '科目数', '每日分布', '班级', '科目']);
   sheet.getRow(1).eachCell(cell => {
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
     cell.alignment = { vertical: 'middle', horizontal: 'center' };
   });
   for (const s of stats) {
-    sheet.addRow([s.teacher, s.weeklyHours, s.monthlyHours, s.classCount, s.subjectCount, s.classes.join('、'), s.subjects.join('、')]);
+    // 每日分布：周一到周日的课时数，用 / 分隔
+    const dist = s.dailyDistribution || {};
+    const dailyDist = [1, 2, 3, 4, 5, 6, 7].map(wd => dist[wd] || 0).join('/');
+    sheet.addRow([
+      s.teacher,
+      s.morningHours || 0,
+      s.dayHours || 0,
+      s.eveningHours || 0,
+      s.classMeetingHours || 0,
+      s.selfStudyHours || 0,
+      s.weeklyHours,
+      s.monthlyHours,
+      s.classCount,
+      s.subjectCount,
+      dailyDist,
+      s.classes.join('、'),
+      s.subjects.join('、')
+    ]);
   }
-  for (let i = 1; i <= 7; i++) sheet.getColumn(i).width = i === 1 ? 12 : (i >= 6 ? 30 : 14);
+  for (let i = 1; i <= 13; i++) {
+    sheet.getColumn(i).width = i === 1 ? 12 : (i === 11 ? 18 : (i >= 12 ? 30 : 12));
+  }
   const buffer = await wb.xlsx.writeBuffer();
   return buffer;
 }

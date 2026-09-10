@@ -9,40 +9,72 @@ function periodType(periodLabel) {
   return 'day';                            // 白课（1-8）
 }
 
+// 判断是否为自习科目（自习、自习课等）
+function isSelfStudySubject(subject) {
+  return subject ? /自习/.test(subject) : false;
+}
+
+// 判断是否为班会科目（班会、主题班会等）
+function isClassMeetingSubject(subject) {
+  return subject ? /班会/.test(subject) : false;
+}
+
 // 教师课时统计
 // 周课时 = 教师在本周排的课节数（按不同星期+节次去重）
-// 分别统计 早自习 / 白课(1-8) / 晚自习(晚1-晚4)
+// 分别统计 早自习 / 白课(1-8) / 晚自习(晚1-晚4) / 班会 / 自习
+// 班会、自习：科目匹配即计入对应列，不计入白课/晚自习
 function teacherStatistics(entries) {
-  const teacherMap = new Map(); // teacher -> Set("weekday|period")
+  // teacher -> Map(slotKey -> { periodLabel, subjects: Set })
+  const teacherSlots = new Map();
   const teacherClasses = new Map();
   const teacherSubjects = new Map();
-  const teacherSlotsByType = new Map(); // teacher -> {morning:Set, day:Set, evening:Set}
   for (const e of entries) {
     if (!e.teacher) continue;
     const key = `${e.weekday}|${e.period}`;
-    const ptype = periodType(e.periodLabel);
-    if (!teacherMap.has(e.teacher)) {
-      teacherMap.set(e.teacher, new Set());
+    if (!teacherSlots.has(e.teacher)) {
+      teacherSlots.set(e.teacher, new Map());
       teacherClasses.set(e.teacher, new Set());
       teacherSubjects.set(e.teacher, new Set());
-      teacherSlotsByType.set(e.teacher, { morning: new Set(), day: new Set(), evening: new Set() });
     }
-    teacherMap.get(e.teacher).add(key);
-    teacherSlotsByType.get(e.teacher)[ptype].add(key);
+    const slotMap = teacherSlots.get(e.teacher);
+    if (!slotMap.has(key)) {
+      slotMap.set(key, { periodLabel: e.periodLabel, subjects: new Set() });
+    }
+    if (e.subject) slotMap.get(key).subjects.add(e.subject);
     if (e.class) teacherClasses.get(e.teacher).add(e.class);
     if (e.subject) teacherSubjects.get(e.teacher).add(e.subject);
   }
   const result = [];
-  for (const [teacher, slots] of teacherMap) {
-    const byType = teacherSlotsByType.get(teacher);
-    const weeklyHours = slots.size;
+  for (const [teacher, slotMap] of teacherSlots) {
+    const morning = new Set();
+    const day = new Set();
+    const evening = new Set();
+    const classMeeting = new Set();
+    const selfStudy = new Set();
+    for (const [key, info] of slotMap) {
+      const subjects = [...info.subjects];
+      // 优先级：班会 > 自习 > 时段类型（班会、自习均不计入白课/晚自习）
+      if (subjects.some(isClassMeetingSubject)) {
+        classMeeting.add(key);
+      } else if (subjects.some(isSelfStudySubject)) {
+        selfStudy.add(key);
+      } else {
+        const ptype = periodType(info.periodLabel);
+        if (ptype === 'morning') morning.add(key);
+        else if (ptype === 'evening') evening.add(key);
+        else day.add(key);
+      }
+    }
+    const weeklyHours = slotMap.size;
     result.push({
       teacher,
       weeklyHours,
       monthlyHours: weeklyHours * 4,
-      morningHours: byType.morning.size,    // 早自习节数
-      dayHours: byType.day.size,            // 白课(1-8)节数
-      eveningHours: byType.evening.size,    // 晚自习节数
+      morningHours: morning.size,          // 早自习节数
+      dayHours: day.size,                  // 白课(1-8)节数（不含班会、自习）
+      eveningHours: evening.size,          // 晚自习节数（不含班会、自习）
+      classMeetingHours: classMeeting.size,// 班会节数（科目为班会，无论时段）
+      selfStudyHours: selfStudy.size,      // 自习节数（科目为自习，无论时段）
       classCount: teacherClasses.get(teacher).size,
       subjectCount: teacherSubjects.get(teacher).size,
       classes: [...teacherClasses.get(teacher)].sort(),
