@@ -6,6 +6,19 @@ let activeView = 'upload';  // 当前激活的视图
 let lastClassSel = '';      // 上次选中的班级
 let lastTeacherSel = '';    // 上次选中的教师
 
+// ===== 调课状态 =====
+let swapState = {
+  mode: 'teacher',         // 'teacher' | 'class'
+  teacher: '',             // 当前调课教师
+  class: '',               // 当前调课班级
+  classList: [],           // 教师任教的班级列表
+  source: null,           // 源课程 { class, weekday, period, teacher, subject }
+  target: null,           // 目标课程 { class, weekday, period, teacher, subject }
+  candidates: [],          // 可对调候选列表
+  canUndo: false,         // 是否可撤销
+  periodLabels: null      // 全局节次标签
+};
+
 // ===== 工具函数 =====
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
@@ -43,7 +56,7 @@ $$('.nav-item').forEach(item => {
     $$('.view').forEach(v => v.classList.remove('active'));
     $('#view-' + activeView).classList.add('active');
     // 把 week-bar 移动到当前视图的 filter-bar 内部第一项
-    if (activeView === 'class' || activeView === 'teacher' || activeView === 'stats') {
+    if (activeView === 'class' || activeView === 'teacher' || activeView === 'swap' || activeView === 'stats') {
       const view = $('#view-' + activeView);
       const filterBar = view.querySelector('.filter-bar');
       const weekBar = $('#week-bar');
@@ -61,6 +74,7 @@ function loadView(view) {
     case 'overview': loadOverview(); break;
     case 'class': loadClassList(); break;
     case 'teacher': loadTeacherList(); break;
+    case 'swap': loadSwapView(); break;
     case 'stats': loadStats(); break;
     case 'analysis': break;
   }
@@ -136,6 +150,9 @@ async function uploadFile(file) {
     }
     $('#data-status').textContent = '✓ 已上传课表';
     $('#data-status').classList.add('active');
+    // 清除之前缓存的选中状态，确保新课表数据不被旧选择污染
+    lastTeacherSel = '';
+    lastClassSel = '';
     initWeekBar(data.weeks, data.weeks ? data.weeks[0] : null);
     const sheetsInfo = data.sheets.map(s => `${escapeHtml(s.name)}(${s.format}:${s.count})`).join('、');
     result.innerHTML = `
@@ -147,6 +164,8 @@ async function uploadFile(file) {
     toast('上传成功', 'success');
     // 上传成功后自动执行冲突分析
     runAnalysis();
+    // 重新加载当前视图，确保展示的是新课表数据
+    loadView(activeView);
   } catch (err) {
     result.innerHTML = `<div class="alert alert-error">上传失败：${escapeHtml(err.message)}</div>`;
   }
@@ -203,8 +222,8 @@ async function loadClassList() {
     if (val) loadClassSchedule(val);
     else { $('#class-teachers').innerHTML = ''; $('#class-grid').innerHTML = ''; }
   }, groupClasses);
-  // 如果有上次选中，立即触发一次渲染
-  if (lastClassSel && all.includes(lastClassSel)) {
+  // 如果有上次选中，立即触发一次渲染（即使该班级本周无课，也要重新加载以清除旧数据）
+  if (lastClassSel) {
     loadClassSchedule(lastClassSel);
   } else {
     $('#class-teachers').innerHTML = '';
@@ -219,6 +238,54 @@ async function loadClassSchedule(className) {
   renderTeacherConfig(className, data.teacherConfig);
   // 渲染课表网格（使用全局节次标签）
   $('#class-grid').innerHTML = renderScheduleGrid(data.entries, 'class', data.periodLabels);
+  // 根据视口高度自适应行高
+  adjustRowHeight();
+}
+
+// 根据浏览器视口高度，动态计算行高，使任课教师表和课表都能完整展示
+function adjustRowHeight() {
+  const view = document.getElementById('view-class');
+  if (!view || !view.classList.contains('active')) return;
+
+  // 视口高度
+  const vh = window.innerHeight;
+
+  // 非 table 元素占用的高度：h1 + filter-bar + margins/padding
+  const h1 = view.querySelector('h1');
+  const filterBar = view.querySelector('.filter-bar');
+  const offsetH = (h1 ? h1.offsetHeight : 0) + (filterBar ? filterBar.offsetHeight : 0) + 40;
+
+  // 可用高度
+  const availH = vh - offsetH;
+
+  // 统计行数
+  const teacherRows = document.querySelectorAll('#class-teachers .teacher-config-table tr').length;
+  const scheduleThRows = 1; // 表头行
+  const scheduleTdRows = document.querySelectorAll('#class-grid .schedule-grid tbody tr').length;
+  const totalRows = teacherRows + scheduleThRows + scheduleTdRows;
+
+  if (totalRows === 0) return;
+
+  // 计算行高，限制最小 18px、最大 60px
+  let rowH = Math.floor(availH / totalRows);
+  rowH = Math.max(18, Math.min(60, rowH));
+
+  document.documentElement.style.setProperty('--row-h', rowH + 'px');
+}
+
+// 窗口大小变化时重新计算（包括浏览器缩放）
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(adjustRowHeight, 100);
+});
+
+// 监听视觉视口变化（捕获浏览器缩放）
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(adjustRowHeight, 100);
+  });
 }
 
 // 渲染班级教师配置表：科目前行（蓝底白字=课表表头th）+ 教师行（浅蓝=课表内容）
@@ -277,22 +344,42 @@ async function loadTeacherList() {
     if (val) loadTeacherSchedule(val);
     else $('#teacher-grid').innerHTML = '';
   }, groupTeachers);
-  // 如果有上次选中，立即触发一次渲染
-  if (lastTeacherSel && all.includes(lastTeacherSel)) {
+  // 如果有上次选中，立即触发一次渲染（即使该教师本周无课，也要重新加载以清除旧数据）
+  if (lastTeacherSel) {
     loadTeacherSchedule(lastTeacherSel);
   } else {
     $('#teacher-grid').innerHTML = '';
+    $('#teacher-conflicts').innerHTML = '';
   }
 }
 
 async function loadTeacherSchedule(teacherName) {
   const data = await api(`/api/teacher/${encodeURIComponent(teacherName)}` + weekParam());
   if (data.error) { toast(data.error, 'error'); return; }
-  $('#teacher-grid').innerHTML = renderScheduleGrid(data.entries, 'teacher', data.periodLabels, data.meetingConflicts, data.teacherMeetings);
+  $('#teacher-grid').innerHTML = renderScheduleGrid(data.entries, 'teacher', data.periodLabels, data.meetingConflicts, data.teacherMeetings, data.leaveConflictKeys);
+  renderTeacherConflicts(data.conflicts || []);
+}
+
+// 渲染教师课表下方的冲突提示（颜色与课表高亮一致）
+function renderTeacherConflicts(conflicts) {
+  const wrap = $('#teacher-conflicts');
+  if (!conflicts || !conflicts.length) { wrap.innerHTML = ''; return; }
+  const typeColor = {
+    schedule: { color: 'var(--danger)', label: '重课冲突' },
+    meeting:  { color: '#d48806', label: '会议冲突' },
+    leave:    { color: '#8e44ad', label: '调休冲突' }
+  };
+  let html = '<div class="conflict-tips">';
+  for (const c of conflicts) {
+    const meta = typeColor[c.type] || { color: '#666', label: '冲突' };
+    html += `<div class="conflict-tip" style="color:${meta.color}"><span class="conflict-tip-dot" style="background:${meta.color}"></span><strong>【${meta.label}】</strong>${escapeHtml(c.detail)}</div>`;
+  }
+  html += '</div>';
+  wrap.innerHTML = html;
 }
 
 // ===== 课表网格渲染（自适应星期数 + 节次标签） =====
-function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts, teacherMeetings) {
+function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts, teacherMeetings, leaveConflictKeys) {
   if (!entries.length) return noDataHtml();
   // grid: period -> Map(weekday -> entry[])  同一节课可能有多个条目（教师冲突）
   const grid = new Map();
@@ -312,6 +399,11 @@ function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts,
     for (const tm of teacherMeetings) {
       teacherMeetingMap.set(`${tm.weekday}|${tm.period}`, tm.meetingName);
     }
+  }
+  // 调休冲突单元格 key 集合（weekday|period）
+  const leaveConflictSet = new Set();
+  if (leaveConflictKeys && leaveConflictKeys.length) {
+    for (const k of leaveConflictKeys) leaveConflictSet.add(k);
   }
   if (globalPeriodLabels) {
     for (const [p, label] of Object.entries(globalPeriodLabels)) {
@@ -365,9 +457,12 @@ function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts,
         }
         if (unique[0].location) cell += `<div class="cell-location">@${escapeHtml(unique[0].location)}</div>`;
         const isMeetingConflict = mode === 'teacher' && meetingConflictKeys.has(`${wd}|${p}`);
+        const isLeaveConflict = mode === 'teacher' && leaveConflictSet.has(`${wd}|${p}`);
         let cellClass = 'cell-has';
+        // 冲突严重性：重课(红) > 会议(橙) > 调休(紫)，同一节有多冲突时取严重性最高的颜色
         if (isConflict) cellClass = 'cell-conflict';
         else if (isMeetingConflict) cellClass = 'cell-meeting-conflict';
+        else if (isLeaveConflict) cellClass = 'cell-leave-conflict';
         html += `<td class="${cellClass}">${cell}</td>`;
       } else {
         // 教师模式下，空单元格若有会议，显示水印
@@ -396,7 +491,7 @@ async function loadTeacherStats() {
   if (data.error || !data.teachers.length) { $('#teacher-stats-table').innerHTML = noDataHtml(); return; }
   const maxHours = Math.max(...data.teachers.map(t => t.weeklyHours), 1);
   const dayCount = Math.max(...data.teachers.map(t => Object.keys(t.dailyDistribution || {}).map(Number).filter(k => (t.dailyDistribution[k] || 0) > 0).pop() || 5), 5);
-  let html = '<table class="data-table"><thead><tr><th>教师</th><th>早自习</th><th>白课<br>(1-8)</th><th>晚自习<br>(晚1-晚4)</th><th>周课时</th><th>月课时(约)</th><th>班级数</th><th>科目数</th><th>每日分布</th><th>班级</th><th>科目</th></tr></thead><tbody>';
+  let html = '<table class="data-table"><thead><tr><th>教师</th><th>早自习</th><th>白课</th><th>晚自习</th><th>周课时</th><th>月课时(约)</th><th>班级数</th><th>科目数</th><th>每日分布</th><th>班级</th><th>科目</th></tr></thead><tbody>';
   for (const t of data.teachers) {
     const dist = [];
     for (let wd = 1; wd <= dayCount; wd++) dist.push(t.dailyDistribution[wd] || 0);
@@ -433,7 +528,7 @@ async function loadClassStats() {
   const data = await api('/api/statistics/classes' + weekParam());
   if (data.error || !data.classes.length) { $('#class-stats-table').innerHTML = noDataHtml(); return; }
   const maxHours = Math.max(...data.classes.map(c => c.weeklyHours), 1);
-  let html = '<table class="data-table"><thead><tr><th>班级</th><th>早自习</th><th>白课<br>(1-8)</th><th>晚自习<br>(晚1-晚4)</th><th>周课时</th></tr></thead><tbody>';
+  let html = '<table class="data-table"><thead><tr><th>班级</th><th>早自习</th><th>白课</th><th>晚自习</th><th>周课时</th></tr></thead><tbody>';
   for (const c of data.classes) {
     html += `<tr><td>${escapeHtml(c.class)}</td><td>${c.morningHours || 0}</td><td>${c.dayHours || 0}</td><td>${c.eveningHours || 0}</td><td><strong>${c.weeklyHours}</strong></td></tr>`;
   }
@@ -493,6 +588,7 @@ function renderAnalysisSummary(data) {
     { key: 'class', label: '班级冲突', count: data.classConflicts, type: 'class' },
     { key: 'room', label: '教室冲突', count: data.roomConflicts, type: 'room' },
     { key: 'meeting', label: '会议冲突', count: data.meetingConflicts || 0, type: 'meeting' },
+    { key: 'leave', label: '调休冲突', count: data.leaveConflicts || 0, type: 'leave' },
   ];
   $('#analysis-summary').innerHTML = types.map(t => {
     const danger = t.count > 0 ? 'danger' : 'success';
@@ -522,7 +618,7 @@ function renderAnalysisDetail(data, filter) {
     detail.innerHTML = `<div class="card" style="text-align:center;color:var(--success)">✅ ${filter === 'all' ? '未检测到任何冲突' : '该类型无冲突'}，课表正常！</div>`;
   } else {
     detail.innerHTML = '<h2>冲突详情' + (filter !== 'all' ? `（${conflicts.length}条）` : '') + '</h2>' + conflicts.map(c => {
-      const cls = c.type === 'class' ? 'warning' : c.type === 'meeting' ? 'warning' : '';
+      const cls = c.type === 'class' ? 'warning' : c.type === 'meeting' ? 'warning' : c.type === 'leave' ? 'warning' : '';
       return `<div class="conflict-item ${cls}">
         <span class="conflict-type ${c.type}">${c.typeLabel}</span>
         <strong>${escapeHtml(c.weekdayLabel)} ${escapeHtml(c.periodLabel || '第' + c.period + '节')}</strong>
@@ -788,3 +884,422 @@ function groupTeachers(list) {
 
 // ===== 初始化 =====
 checkData();
+
+// ===== 课表调整功能 =====
+let rejectTooltip = null;
+function ensureRejectTooltip() {
+  if (!rejectTooltip) {
+    rejectTooltip = document.createElement('div');
+    rejectTooltip.className = 'swap-reject-tooltip';
+    document.body.appendChild(rejectTooltip);
+  }
+  return rejectTooltip;
+}
+
+// 课表类型切换
+$('#swap-mode-select').addEventListener('change', () => {
+  swapState.mode = $('#swap-mode-select').value;
+  if (swapState.mode === 'teacher') {
+    $('#swap-teacher-group').style.display = '';
+    $('#swap-class-group').style.display = 'none';
+  } else {
+    $('#swap-teacher-group').style.display = 'none';
+    $('#swap-class-group').style.display = '';
+  }
+  resetSwapSelection();
+  loadSwapGrid();
+});
+
+// 班级选择切换
+$('#swap-class-select').addEventListener('change', async () => {
+  swapState.class = $('#swap-class-select').value;
+  resetSwapSelection();
+  await loadSwapGrid();
+});
+
+// 执行调整
+$('#swap-execute-btn').addEventListener('click', executeSwapAction);
+// 撤销
+$('#swap-undo-btn').addEventListener('click', undoSwapAction);
+
+// 调课视图加载
+async function loadSwapView() {
+  const data = await api('/api/teachers' + weekParam());
+  if (data.error) { $('#swap-grid').innerHTML = noDataHtml(); return; }
+  const all = data.teachers.slice().sort();
+  initCombobox('swap-teacher-select', all, lastTeacherSel, async (val) => {
+    lastTeacherSel = val;
+    swapState.teacher = val;
+    swapState.source = null;
+    swapState.target = null;
+    swapState.candidates = [];
+    $('#swap-execute-btn').disabled = true;
+    if (val) await onSwapTeacherSelected(val);
+    else { resetSwapState(); $('#swap-grid').innerHTML = ''; }
+  }, groupTeachers);
+  // 如果有上次选中，立即触发
+  if (lastTeacherSel && all.includes(lastTeacherSel)) {
+    swapState.teacher = lastTeacherSel;
+    await onSwapTeacherSelected(lastTeacherSel);
+  } else {
+    $('#swap-grid').innerHTML = '';
+  }
+}
+
+// 教师选中后：加载该教师的课表作为调课主网格
+async function onSwapTeacherSelected(teacherName) {
+  const data = await api(`/api/teacher/${encodeURIComponent(teacherName)}` + weekParam());
+  if (data.error) { toast(data.error, 'error'); return; }
+  swapState.periodLabels = data.periodLabels;
+  // 教师模式下，主网格显示教师课表，但调课仍是在班级内对调
+  // 用户在教师课表中选中某节课后，系统找到该课所属班级，然后计算该班内的可对调课程
+  $('#swap-grid-title').textContent = `${teacherName} 课表`;
+  $('#swap-grid').innerHTML = renderSwapGrid(data.entries, 'teacher', data.periodLabels, data.meetingConflicts, data.teacherMeetings);
+  // 清空参考课表
+  $('#swap-source-teacher-title').textContent = '当前选中课程的老师课表';
+  $('#swap-source-teacher-grid').innerHTML = '';
+  $('#swap-target-teacher-title').textContent = '对调老师课程表';
+  $('#swap-target-teacher-grid').innerHTML = '';
+}
+
+// 加载调课网格（班级模式）
+async function loadSwapGrid() {
+  if (swapState.mode === 'teacher') {
+    if (swapState.teacher) await onSwapTeacherSelected(swapState.teacher);
+  } else {
+    if (!swapState.class) {
+      // 填充班级下拉
+      const data = await api('/api/classes' + weekParam());
+      if (data.error) return;
+      const sel = $('#swap-class-select');
+      sel.innerHTML = data.classes.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+      if (data.classes.length) {
+        swapState.class = data.classes[0];
+        sel.value = data.classes[0];
+      }
+    }
+    if (swapState.class) {
+      const data = await api(`/api/class/${encodeURIComponent(swapState.class)}` + weekParam());
+      if (data.error) { toast(data.error, 'error'); return; }
+      swapState.periodLabels = data.periodLabels;
+      $('#swap-grid-title').textContent = `${swapState.class} 课表`;
+      $('#swap-grid').innerHTML = renderSwapGrid(data.entries, 'class', data.periodLabels);
+      $('#swap-source-teacher-title').textContent = '当前选中课程的老师课表';
+      $('#swap-source-teacher-grid').innerHTML = '';
+      $('#swap-target-teacher-title').textContent = '对调老师课程表';
+      $('#swap-target-teacher-grid').innerHTML = '';
+    }
+  }
+}
+
+// 调课专用网格渲染：每个单元格带 data-* 属性，用于点击交互
+function renderSwapGrid(entries, mode, globalPeriodLabels, meetingConflicts, teacherMeetings, highlightTeacher) {
+  if (!entries.length) return noDataHtml();
+  const grid = new Map();
+  const periodLabels = new Map();
+  let maxPeriod = 0;
+  const meetingConflictKeys = new Set();
+  if (meetingConflicts && meetingConflicts.length) {
+    for (const mc of meetingConflicts) meetingConflictKeys.add(`${mc.weekday}|${mc.period}`);
+  }
+  const teacherMeetingMap = new Map();
+  if (teacherMeetings && teacherMeetings.length) {
+    for (const tm of teacherMeetings) teacherMeetingMap.set(`${tm.weekday}|${tm.period}`, tm.meetingName);
+  }
+  if (globalPeriodLabels) {
+    for (const [p, label] of Object.entries(globalPeriodLabels)) periodLabels.set(Number(p), label);
+    const globalMax = Math.max(...Object.keys(globalPeriodLabels).map(Number));
+    if (globalMax > maxPeriod) maxPeriod = globalMax;
+  }
+  for (const e of entries) {
+    if (e.period > maxPeriod) maxPeriod = e.period;
+    if (!grid.has(e.period)) grid.set(e.period, new Map());
+    const dayMap = grid.get(e.period);
+    if (!dayMap.has(e.weekday)) dayMap.set(e.weekday, []);
+    dayMap.get(e.weekday).push(e);
+    if (e.periodLabel && !periodLabels.has(e.period)) periodLabels.set(e.period, e.periodLabel);
+  }
+  const dayCols = [1, 2, 3, 4, 5, 6, 7];
+  const firstColPct = 10;
+  const dayColPct = (100 - firstColPct) / dayCols.length;
+  let html = '<table class="schedule-grid"><colgroup>';
+  html += `<col style="width:${firstColPct.toFixed(2)}%">`;
+  for (const wd of dayCols) html += `<col style="width:${dayColPct.toFixed(2)}%">`;
+  html += '</colgroup><thead><tr><th>节次</th>';
+  for (const wd of dayCols) html += `<th>${WEEKDAYS[wd] || '周' + wd}</th>`;
+  html += '</tr></thead><tbody>';
+  for (let p = 1; p <= maxPeriod; p++) {
+    const label = periodLabels.get(p) || `第${p}节`;
+    html += `<tr><td>${escapeHtml(label)}</td>`;
+    for (const wd of dayCols) {
+      const arr = (grid.get(p) || new Map()).get(wd);
+      if (arr && arr.length) {
+        const seen = new Set();
+        const unique = [];
+        for (const e of arr) {
+          const k = `${e.class}|${e.subject}`;
+          if (!seen.has(k)) { seen.add(k); unique.push(e); }
+        }
+        const classSet = new Set(unique.map(e => e.class || '').filter(Boolean));
+        const isConflict = (mode === 'teacher' && classSet.size > 1);
+        let cell = `<div class="cell-subject">${escapeHtml(unique[0].subject || '')}</div>`;
+        if (mode === 'class' && unique[0].teacher) cell += `<div class="cell-teacher">${escapeHtml(unique[0].teacher)}</div>`;
+        if (mode === 'teacher') {
+          const classes = [...classSet];
+          if (classes.length) cell += `<div class="cell-class">${escapeHtml(classes.join(' / '))}</div>`;
+        }
+        if (unique[0].location) cell += `<div class="cell-location">@${escapeHtml(unique[0].location)}</div>`;
+        const isMeetingConflict = mode === 'teacher' && meetingConflictKeys.has(`${wd}|${p}`);
+        let cellClass = 'cell-has';
+        if (isConflict) cellClass = 'cell-conflict';
+        else if (isMeetingConflict) cellClass = 'cell-meeting-conflict';
+        else if (highlightTeacher && unique[0].teacher === highlightTeacher) cellClass = 'cell-own-teacher';
+        // 取第一个条目的信息作为 data 属性
+        const e0 = unique[0];
+        html += `<td class="${cellClass}" data-weekday="${wd}" data-period="${p}" data-class="${escapeAttr(e0.class || '')}" data-teacher="${escapeAttr(e0.teacher || '')}" data-subject="${escapeAttr(e0.subject || '')}">${cell}</td>`;
+      } else {
+        if (mode === 'teacher' && teacherMeetingMap.has(`${wd}|${p}`)) {
+          const mName = teacherMeetingMap.get(`${wd}|${p}`);
+          html += `<td class="cell-empty cell-meeting" data-weekday="${wd}" data-period="${p}"><span class="meeting-watermark">${escapeHtml(mName)}</span></td>`;
+        } else {
+          html += `<td class="cell-empty" data-weekday="${wd}" data-period="${p}">—</td>`;
+        }
+      }
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+// 调课网格点击事件代理
+$('#swap-grid').addEventListener('click', async (e) => {
+  const td = e.target.closest('td');
+  if (!td || !td.dataset.weekday) return;
+  const weekday = Number(td.dataset.weekday);
+  const period = Number(td.dataset.period);
+  // 1. 无源课程 → 选源（红色）
+  if (!swapState.source) {
+    if (td.classList.contains('cell-empty')) { toast('空课不可选', 'error'); return; }
+    await selectSource(td, weekday, period);
+  } else {
+    // 2. 已有源课程
+    if (swapState.source.weekday === weekday && swapState.source.period === period) {
+      resetSwapSelection();
+      // 教师模式下恢复教师课表视图
+      if (swapState.mode === 'teacher' && swapState.teacher) {
+        await onSwapTeacherSelected(swapState.teacher);
+      }
+      return;
+    }
+    if (td.classList.contains('cell-swap-able')) {
+      selectTarget(weekday, period);
+    } else if (td.classList.contains('cell-swap-target')) {
+      swapState.target = null;
+      $('#swap-execute-btn').disabled = true;
+      renderSwapGridState();
+    }
+  }
+});
+
+// 右键查看禁选原因
+$('#swap-grid').addEventListener('contextmenu', (e) => {
+  const td = e.target.closest('td');
+  if (!td || !td.dataset.weekday) return;
+  e.preventDefault();
+  const weekday = Number(td.dataset.weekday);
+  const period = Number(td.dataset.period);
+  const tooltip = ensureRejectTooltip();
+  const cand = swapState.candidates.find(c => c.weekday === weekday && c.period === period);
+  if (cand && !cand.swappable && cand.rejectReason) {
+    tooltip.textContent = cand.rejectReason;
+    tooltip.style.display = 'block';
+    tooltip.style.left = e.clientX + 10 + 'px';
+    tooltip.style.top = e.clientY + 10 + 'px';
+  } else if (swapState.source && swapState.source.weekday === weekday && swapState.source.period === period) {
+    tooltip.textContent = '这是当前选中的源课程';
+    tooltip.style.display = 'block';
+    tooltip.style.left = e.clientX + 10 + 'px';
+    tooltip.style.top = e.clientY + 10 + 'px';
+  } else {
+    tooltip.style.display = 'none';
+  }
+});
+
+// 点击其他位置隐藏禁选提示
+document.addEventListener('click', () => {
+  if (rejectTooltip) rejectTooltip.style.display = 'none';
+});
+
+// 选中源课程
+async function selectSource(td, weekday, period) {
+  const className = td.dataset.class;
+  const teacher = td.dataset.teacher;
+  const subject = td.dataset.subject;
+  if (!teacher) { toast('该课程无教师，不可调', 'error'); return; }
+  swapState.source = { class: className, weekday, period, teacher, subject };
+  swapState.target = null;
+  $('#swap-execute-btn').disabled = true;
+  // 调用 API 获取候选（基于源课程所在班级）
+  const url = `/api/swap/candidates?className=${encodeURIComponent(className)}&weekday=${weekday}&period=${period}` + weekParam('&');
+  const data = await api(url);
+  if (data.error) { toast(data.error, 'error'); resetSwapSelection(); return; }
+  swapState.candidates = data.candidates || [];
+  // 切换为班级课表视图，让所有单元格显示科目和教师
+  const classData = await api(`/api/class/${encodeURIComponent(className)}` + weekParam());
+  if (!classData.error) {
+    swapState.periodLabels = classData.periodLabels;
+    $('#swap-grid-title').textContent = `${className} 课表（调课中：${teacher}）`;
+    $('#swap-grid').innerHTML = renderSwapGrid(classData.entries, 'class', classData.periodLabels, null, null, teacher);
+  }
+  renderSwapGridState();
+  // 加载源教师参考课表
+  await loadRefSchedule('source', teacher);
+}
+
+// 选中目标课程
+function selectTarget(weekday, period) {
+  const cand = swapState.candidates.find(c => c.weekday === weekday && c.period === period);
+  if (!cand || !cand.swappable) return;
+  swapState.target = {
+    class: swapState.source.class,
+    weekday, period,
+    teacher: cand.teacher,
+    subject: cand.subject
+  };
+  $('#swap-execute-btn').disabled = false;
+  renderSwapGridState();
+  loadRefSchedule('target', cand.teacher);
+}
+
+// 渲染调课网格状态（高亮颜色）
+function renderSwapGridState() {
+  const tds = $$('#swap-grid td[data-weekday]');
+  tds.forEach(td => {
+    td.classList.remove('cell-swap-selected', 'cell-swap-able', 'cell-swap-target', 'cell-swap-disabled');
+  });
+  if (!swapState.source) return;
+  // 高亮源课程（红色）
+  const srcTd = $(`#swap-grid td[data-weekday="${swapState.source.weekday}"][data-period="${swapState.source.period}"]`);
+  if (srcTd) srcTd.classList.add('cell-swap-selected');
+  // 高亮可对调/禁选
+  for (const cand of swapState.candidates) {
+    const td = $(`#swap-grid td[data-weekday="${cand.weekday}"][data-period="${cand.period}"]`);
+    if (!td) continue;
+    if (cand.swappable) td.classList.add('cell-swap-able');
+    else td.classList.add('cell-swap-disabled');
+  }
+  // 高亮目标（绿色）
+  if (swapState.target) {
+    const tgtTd = $(`#swap-grid td[data-weekday="${swapState.target.weekday}"][data-period="${swapState.target.period}"]`);
+    if (tgtTd) {
+      tgtTd.classList.remove('cell-swap-able');
+      tgtTd.classList.add('cell-swap-target');
+    }
+  }
+}
+
+// 加载参考课表
+async function loadRefSchedule(type, teacherName) {
+  if (!teacherName) return;
+  const data = await api(`/api/teacher/${encodeURIComponent(teacherName)}` + weekParam());
+  if (data.error) return;
+  const html = renderScheduleGrid(data.entries, 'teacher', data.periodLabels, data.meetingConflicts, data.teacherMeetings, data.leaveConflictKeys);
+  if (type === 'source') {
+    $('#swap-source-teacher-title').textContent = `当前选中课程的老师课表：${teacherName}`;
+    $('#swap-source-teacher-grid').innerHTML = html;
+  } else {
+    $('#swap-target-teacher-title').textContent = `对调老师课程表：${teacherName}`;
+    $('#swap-target-teacher-grid').innerHTML = html;
+  }
+}
+
+// 执行对调
+async function executeSwapAction() {
+  if (!swapState.source || !swapState.target) return;
+  const btn = $('#swap-execute-btn');
+  btn.disabled = true;
+  btn.textContent = '调整中...';
+  try {
+    const result = await api('/api/swap/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: swapState.source,
+        target: swapState.target,
+        week: currentWeek
+      })
+    });
+    if (result.error) { toast(result.error, 'error'); return; }
+    toast('对调成功', 'success');
+    swapState.canUndo = true;
+    $('#swap-undo-btn').disabled = false;
+    // 刷新调课网格
+    if (swapState.mode === 'teacher') {
+      await onSwapTeacherSelected(swapState.teacher);
+    } else {
+      $('#swap-grid').innerHTML = renderSwapGrid(result.classEntries, 'class', result.periodLabels);
+    }
+    swapState.periodLabels = result.periodLabels;
+    // 刷新参考课表
+    await loadRefSchedule('source', result.sourceTeacherName || swapState.source.teacher);
+    if (result.targetTeacherName) await loadRefSchedule('target', result.targetTeacherName);
+    resetSwapSelection();
+    // 教师模式下恢复教师课表视图
+    if (swapState.mode === 'teacher' && swapState.teacher) {
+      await onSwapTeacherSelected(swapState.teacher);
+    }
+    // 同步刷新教师课表视图
+    if (lastTeacherSel && activeView === 'teacher') loadTeacherSchedule(lastTeacherSel);
+  } finally {
+    btn.disabled = true;
+    btn.textContent = '执行调整';
+  }
+}
+
+// 撤销对调
+async function undoSwapAction() {
+  const result = await api('/api/swap/undo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ week: currentWeek })
+  });
+  if (result.error) { toast(result.error, 'error'); return; }
+  toast('已撤销', 'success');
+  swapState.canUndo = false;
+  $('#swap-undo-btn').disabled = true;
+  // 刷新调课网格
+  if (swapState.mode === 'teacher') {
+    if (swapState.teacher) await onSwapTeacherSelected(swapState.teacher);
+  } else {
+    if (swapState.class) {
+      const classData = await api(`/api/class/${encodeURIComponent(swapState.class)}` + weekParam());
+      if (!classData.error) {
+        $('#swap-grid').innerHTML = renderSwapGrid(classData.entries, 'class', classData.periodLabels);
+      }
+    }
+  }
+  resetSwapSelection();
+  if (lastTeacherSel && activeView === 'teacher') loadTeacherSchedule(lastTeacherSel);
+}
+
+function resetSwapSelection() {
+  swapState.source = null;
+  swapState.target = null;
+  swapState.candidates = [];
+  $('#swap-execute-btn').disabled = true;
+  $$('#swap-grid td[data-weekday]').forEach(td => {
+    td.classList.remove('cell-swap-selected', 'cell-swap-able', 'cell-swap-target', 'cell-swap-disabled');
+  });
+  $('#swap-source-teacher-title').textContent = '当前选中课程的老师课表';
+  $('#swap-source-teacher-grid').innerHTML = '';
+  $('#swap-target-teacher-title').textContent = '对调老师课程表';
+  $('#swap-target-teacher-grid').innerHTML = '';
+}
+
+function resetSwapState() {
+  resetSwapSelection();
+  swapState.class = '';
+  swapState.canUndo = false;
+  $('#swap-undo-btn').disabled = true;
+}

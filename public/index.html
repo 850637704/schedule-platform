@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>课表管理平台</title>
-  <link rel="stylesheet" href="/css/style.css?v=20260904q">
+  <link rel="stylesheet" href="/css/style.css?v=20260909s7">
 </head>
 <body>
   <div class="app">
@@ -18,6 +18,7 @@
         <a href="#" class="nav-item" data-view="overview">总览</a>
         <a href="#" class="nav-item" data-view="class">班级课表</a>
         <a href="#" class="nav-item" data-view="teacher">教师课表</a>
+        <a href="#" class="nav-item" data-view="swap">课表调整</a>
         <a href="#" class="nav-item" data-view="stats">课时统计</a>
         <a href="#" class="nav-item" data-view="analysis">冲突分析</a>
       </nav>
@@ -99,6 +100,59 @@
           <button class="btn btn-outline" id="teacher-export-btn">导出该教师课表</button>
         </div>
         <div id="teacher-grid" class="schedule-grid-wrap"></div>
+        <div id="teacher-conflicts" class="teacher-conflicts"></div>
+      </section>
+
+      <!-- 课表调整 -->
+      <section id="view-swap" class="view">
+        <h1>课表调整</h1>
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label class="filter-label">课表类型：</label>
+            <select id="swap-mode-select" class="swap-mode-select">
+              <option value="teacher">教师课表</option>
+              <option value="class">班级课表</option>
+            </select>
+          </div>
+          <div class="filter-group" id="swap-teacher-group">
+            <label class="filter-label">教师：</label>
+            <div class="combobox" data-target="swap-teacher-select">
+              <div class="combobox-input-wrap">
+                <input type="text" class="combobox-input" id="swap-teacher-select" placeholder="输入姓名/拼音，或点▾选择" autocomplete="off">
+                <button class="combobox-toggle" type="button" tabindex="-1" title="点击展开全部教师，鼠标选择">▾</button>
+              </div>
+              <div class="combobox-dropdown" id="swap-teacher-select-dropdown"></div>
+            </div>
+          </div>
+          <div class="filter-group" id="swap-class-group" style="display:none">
+            <label class="filter-label">年级班级：</label>
+            <select id="swap-class-select" class="swap-class-select"></select>
+          </div>
+          <button class="btn btn-primary" id="swap-execute-btn" disabled>执行调整</button>
+          <button class="btn btn-outline" id="swap-undo-btn" disabled>撤销</button>
+        </div>
+        <div class="swap-content">
+          <div class="swap-main">
+            <h3 id="swap-grid-title"></h3>
+            <div id="swap-grid" class="schedule-grid-wrap swap-grid-wrap"></div>
+          </div>
+          <div class="swap-side">
+            <div class="swap-ref">
+              <h3 id="swap-source-teacher-title">当前选中课程的老师课表</h3>
+              <div id="swap-source-teacher-grid" class="schedule-grid-wrap swap-ref-grid"></div>
+            </div>
+            <div class="swap-ref">
+              <h3 id="swap-target-teacher-title">对调老师课程表</h3>
+              <div id="swap-target-teacher-grid" class="schedule-grid-wrap swap-ref-grid"></div>
+            </div>
+          </div>
+        </div>
+        <div class="swap-legend">
+          <span class="legend-item"><span class="legend-color legend-selected"></span>当前选中的节次</span>
+          <span class="legend-item"><span class="legend-color legend-swappable"></span>当前可调的节次</span>
+          <span class="legend-item"><span class="legend-color legend-target"></span>选中的对调节次</span>
+          <span class="legend-hint">操作说明：① 单击选中要调的课程（变红，再次单击取消）→ ② 单击蓝色可调课程选为对调目标（变绿）→ ③ 点击「执行调整」完成对调。注：换课老师只能在同班级；右键查看禁选原因，左键取消。</span>
+        </div>
       </section>
 
       <!-- 课时统计 -->
@@ -133,6 +187,6 @@
       <div id="toast" class="toast"></div>
     </main>
   </div>
-  <script src="/js/app.js?v=20260904q"></script>
+  <script src="/js/app.js?v=20260909s9"></script>
 </body>
 </html>

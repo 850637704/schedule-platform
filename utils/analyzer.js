@@ -4,6 +4,7 @@
 //   2. 班级冲突：同一班级在同一时段被安排多位教师/科目
 //   3. 教室冲突：同一教室在同一时段被多个班级使用（可选）
 //   4. 会议冲突：教师在会议时间被排课（如物理老师在理综组会时间排课）
+//   5. 调休冲突：教师在调休日被排课（调休仅在单周有效）
 
 const { MEETING_SUBJECT_MAP } = require('./parser');
 
@@ -30,7 +31,8 @@ function formatWeekPrefix(weekTypes) {
 }
 
 // 对单周/双周的 entries 运行冲突检测，返回原始冲突列表
-function detectConflicts(entries, meetings, teacherMap) {
+// weekType: 当前检测的周次类型（调休仅在单周有效）
+function detectConflicts(entries, meetings, teacherMap, leaves, weekType) {
   const teacherSlots = new Map();
   const classSlots = new Map();
   const roomSlots = new Map();
@@ -155,17 +157,42 @@ function detectConflicts(entries, meetings, teacherMap) {
     }
   }
 
+  // 调休冲突：教师在调休日被排课（调休仅在单周有效）
+  if (leaves && leaves.length && weekType === '单周') {
+    // 构建 teacher|weekday -> true 的快速查找集合
+    const leaveSet = new Set();
+    for (const l of leaves) {
+      if (l.teacher && l.weekday) leaveSet.add(`${l.teacher}|${l.weekday}`);
+    }
+    for (const entry of entries) {
+      if (!entry.teacher) continue;
+      if (leaveSet.has(`${entry.teacher}|${entry.weekday}`)) {
+        const k = `${entry.teacher}|${entry.weekday}|${entry.period}|leave`;
+        conflicts.push({
+          type: 'leave',
+          teacher: entry.teacher,
+          weekday: entry.weekday,
+          period: entry.period,
+          periodLabel: entry.periodLabel,
+          detail: `教师「${entry.teacher}」在 ${weekdayNames[entry.weekday]} 调休，但被安排了 ${entry.subject}（${entry.class} ${entry.periodLabel || '第' + entry.period + '节'}）`,
+          entries: [entry],
+          _key: k
+        });
+      }
+    }
+  }
+
   return conflicts;
 }
 
 // 合并冲突：同一 _key 在单周和双周都有时，标注 (单双周)
-function analyzeConflicts(allEntries, meetings, teacherMap) {
+function analyzeConflicts(allEntries, meetings, teacherMap, leaves) {
   // 按周次分组检测
   const weekResults = {};
   for (const wt of WEEK_TYPES) {
     const entries = allEntries.filter(e => (e.weekType || '通用') === wt);
     if (entries.length === 0) continue;
-    weekResults[wt] = detectConflicts(entries, meetings, teacherMap);
+    weekResults[wt] = detectConflicts(entries, meetings, teacherMap, leaves, wt);
   }
 
   // 合并：_key -> { weekTypes: Set, conflict: obj }
@@ -193,7 +220,7 @@ function analyzeConflicts(allEntries, meetings, teacherMap) {
     );
     conflicts.push({
       type: c.type,
-      typeLabel: c.type === 'teacher' ? '教师冲突' : c.type === 'class' ? '班级冲突' : c.type === 'room' ? '教室冲突' : '会议冲突',
+      typeLabel: c.type === 'teacher' ? '教师冲突' : c.type === 'class' ? '班级冲突' : c.type === 'room' ? '教室冲突' : c.type === 'meeting' ? '会议冲突' : '调休冲突',
       teacher: c.teacher,
       class: c.class,
       meeting: c.meeting,
@@ -222,6 +249,7 @@ function analyzeConflicts(allEntries, meetings, teacherMap) {
     classConflicts: conflicts.filter(c => c.type === 'class').length,
     roomConflicts: conflicts.filter(c => c.type === 'room').length,
     meetingConflicts: conflicts.filter(c => c.type === 'meeting').length,
+    leaveConflicts: conflicts.filter(c => c.type === 'leave').length,
     conflicts
   };
 }

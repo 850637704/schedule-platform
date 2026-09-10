@@ -275,20 +275,137 @@ function parseMeetingSheet(sheet) {
   return meetings;
 }
 
+// 解析「教师调休」工作表
+// 调休仅在单周有效。支持三种格式：
+//   格式A（列格式）：表头为周一~周日，单元格内为教师姓名（教师在哪列即周几调休）
+//   格式B（网格格式）：第1列为教师名，表头为周一~周日，单元格内为调休标记（休/调休/1/✓等）
+//   格式C（列表格式）：两列（教师、调休日），调休日为星期文本
+// 返回：[{ teacher, weekday }]
+function parseLeaveSheet(sheet) {
+  if (!sheet) return [];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blank: false });
+  if (!rows.length) return [];
+
+  const leaves = [];
+  const seen = new Set(); // 去重 teacher|weekday
+
+  // 在前5行中查找表头行（包含星期名的行）
+  let headerIdx = -1;
+  let weekdayCols = []; // { col, weekday }
+  for (let r = 0; r < Math.min(5, rows.length); r++) {
+    const row = rows[r] || [];
+    const cols = [];
+    row.forEach((cell, c) => {
+      const wd = parseWeekday(cell);
+      if (wd != null) cols.push({ col: c, weekday: wd });
+    });
+    if (cols.length >= 2) {
+      headerIdx = r;
+      weekdayCols = cols;
+      break;
+    }
+  }
+
+  if (headerIdx >= 0 && weekdayCols.length > 0) {
+    // 判断是格式A（单元格为教师姓名）还是格式B（第一列为教师名，单元格为标记）
+    // 取第一个数据行，检查第一列是否为教师名（非空且非星期）
+    const firstDataRow = rows[headerIdx + 1] || [];
+    const firstCell = String(firstDataRow[0] || '').trim();
+    const firstCellIsWeekday = parseWeekday(firstCell) != null;
+    // 格式A：第一列为空或为星期名（无教师名列），单元格直接是教师名
+    // 格式B：第一列为教师名
+    const isColFormat = !firstCell || firstCellIsWeekday || /[周一二三四五六日天]/.test(firstCell);
+
+    if (isColFormat) {
+      // 格式A：单元格内的值即为教师姓名
+      for (let r = headerIdx + 1; r < rows.length; r++) {
+        const row = rows[r];
+        if (!row) continue;
+        for (const { col, weekday } of weekdayCols) {
+          const val = row[col];
+          if (val == null) continue;
+          const teacher = String(val).trim();
+          if (!teacher) continue;
+          // 跳过可能的标记值（如"休"等单字标记，教师名一般是2-4字中文）
+          if (/^(休|调休|休息|1|✓|√|是|有|无|空|-)$/.test(teacher)) continue;
+          const key = `${teacher}|${weekday}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            leaves.push({ teacher, weekday });
+          }
+        }
+      }
+    } else {
+      // 格式B：第一列为教师名，单元格为标记
+      const LEAVE_MARKERS = ['休', '调休', '休息', '1', '✓', '√', '是', '有'];
+      const isLeaveMarker = (v) => {
+        if (v == null) return false;
+        const s = String(v).trim();
+        if (!s) return false;
+        return LEAVE_MARKERS.some(m => s === m || s.includes(m));
+      };
+      for (let r = headerIdx + 1; r < rows.length; r++) {
+        const row = rows[r];
+        if (!row) continue;
+        const teacher = String(row[0] || '').trim();
+        if (!teacher) continue;
+        for (const { col, weekday } of weekdayCols) {
+          if (isLeaveMarker(row[col])) {
+            const key = `${teacher}|${weekday}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              leaves.push({ teacher, weekday });
+            }
+          }
+        }
+      }
+    }
+  } else {
+    // 格式C：列表格式（教师列 + 调休日列）
+    let teacherCol = -1, dayCol = -1;
+    const headerRow = rows[0] || [];
+    headerRow.forEach((cell, c) => {
+      const s = String(cell || '').trim();
+      if (/教师|老师|姓名/.test(s) && teacherCol === -1) teacherCol = c;
+      else if (/调休|休息|星期|周[一二三四五六日天]/.test(s) && dayCol === -1) dayCol = c;
+    });
+    if (teacherCol === -1) teacherCol = 0;
+    if (dayCol === -1) dayCol = 1;
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      const teacher = String(row[teacherCol] || '').trim();
+      const dayText = String(row[dayCol] || '').trim();
+      if (!teacher || !dayText) continue;
+      const wd = parseWeekday(dayText);
+      if (wd != null) {
+        const key = `${teacher}|${wd}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          leaves.push({ teacher, weekday: wd });
+        }
+      }
+    }
+  }
+
+  return leaves;
+}
+
 // 判断是否为高中总课表格式（含 总课表 + 教师安排 工作表）
 function isSchoolWorkbook(wb) {
   const names = wb.SheetNames;
-  return names.some(n => /教师安排|教师/.test(n)) &&
+  return names.some(n => /教师安排/.test(n)) &&
          names.some(n => /总课表|课表/.test(n));
 }
 
 // 解析高中总课表格式
 function parseSchoolFormat(wb) {
   const names = wb.SheetNames;
-  // 教师安排表
-  const teacherSheetName = names.find(n => /教师安排|教师/.test(n));
+  // 教师安排表（精确匹配"教师安排"，避免误选"教师调休"）
+  const teacherSheetName = names.find(n => /教师安排/.test(n)) || names.find(n => /教师/.test(n) && !/调休/.test(n));
   const { teacherMap, subjects: teacherSubjects } = buildTeacherMap(wb.Sheets[teacherSheetName]);
-  // 总课表工作表
+  // 总课表工作表（排除教师相关表）
   const scheduleSheetNames = names.filter(n => /总课表|课表/.test(n) && !/教师/.test(n));
   const allEntries = [];
   const weeks = [];
@@ -319,7 +436,13 @@ function parseSchoolFormat(wb) {
   if (meetings.length) {
     sheetsInfo.push({ name: meetingSheetName, format: 'meetings', count: meetings.length });
   }
-  return { entries: allEntries, sheets: sheetsInfo, weeks, teacherSubjects, teacherMap, meetings };
+  // 解析「教师调休」工作表
+  const leaveSheetName = names.find(n => /调休/.test(n));
+  const leaves = leaveSheetName ? parseLeaveSheet(wb.Sheets[leaveSheetName]) : [];
+  if (leaves.length) {
+    sheetsInfo.push({ name: leaveSheetName, format: 'leaves', count: leaves.length });
+  }
+  return { entries: allEntries, sheets: sheetsInfo, weeks, teacherSubjects, teacherMap, meetings, leaves };
 }
 
 // ========== 旧格式兼容（列表 / 简单网格） ==========
@@ -465,4 +588,4 @@ function parseWorkbook(filePath) {
   return { entries: dedup, sheets: sheetsInfo, weeks: ['通用'] };
 }
 
-module.exports = { parseWorkbook, parseWeekday, parsePeriod, parseCellContent, parseMeetingSheet, MEETING_SUBJECT_MAP };
+module.exports = { parseWorkbook, parseWeekday, parsePeriod, parseCellContent, parseMeetingSheet, parseLeaveSheet, MEETING_SUBJECT_MAP };

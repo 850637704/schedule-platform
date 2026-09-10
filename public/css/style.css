@@ -1,4 +1,5 @@
 :root {
+  --row-h: 48px;
   --primary: #4472C4;
   --primary-dark: #2F5496;
   --primary-light: #D9E1F2;
@@ -232,9 +233,7 @@ h2 { font-size: 17px; margin-bottom: 14px; }
 /* Schedule grid - 自适应 + 表头/首列固定 */
 .schedule-grid-wrap {
   width: 100%;
-  /* 视口高度 - 标题/筛选栏/padding 约 200px，让表格在剩余空间内滚动 */
-  max-height: calc(100vh - 160px);
-  overflow: auto;                    /* 横向+纵向都支持滚动 */
+  overflow: auto;                    /* 横向滚动（纵向由行高自适应控制） */
   -webkit-overflow-scrolling: touch;
   background: var(--card-bg);
   border-radius: var(--radius);
@@ -250,7 +249,7 @@ h2 { font-size: 17px; margin-bottom: 14px; }
 }
 /* 表头固定：横向滚动时左侧固定，纵向滚动时顶部固定 */
 .schedule-grid th {
-  height: 48px;
+  height: var(--row-h);
   position: sticky;
   top: 0;
   z-index: 3;
@@ -290,7 +289,7 @@ h2 { font-size: 17px; margin-bottom: 14px; }
   overflow-wrap: break-word;
   background: var(--card-bg);
   /* 统一行高：无论有无课程，每行高度一致 */
-  height: 48px;
+  height: var(--row-h);
 }
 .schedule-grid .cell-has {
   background: #f8f9ff;
@@ -330,6 +329,45 @@ h2 { font-size: 17px; margin-bottom: 14px; }
 .schedule-grid .cell-meeting-conflict .cell-class {
   color: #d48806;
   font-weight: 700;
+}
+/* 调休冲突高亮（紫色，与重课冲突红色、会议冲突橙色区分） */
+.schedule-grid .cell-leave-conflict {
+  background: #f4ecff;
+  border: 2px solid #8e44ad;
+  padding: clamp(2px, 0.5vw, 6px) clamp(2px, 0.4vw, 5px);
+}
+.schedule-grid .cell-leave-conflict .cell-subject,
+.schedule-grid .cell-leave-conflict .cell-class {
+  color: #8e44ad;
+  font-weight: 700;
+}
+/* 教师课表下方冲突提示 */
+.teacher-conflicts {
+  margin-top: 12px;
+}
+.conflict-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.conflict-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 6px 10px;
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.conflict-tip-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
 }
 .cell-subject {
   font-weight: 600;
@@ -425,6 +463,7 @@ table.data-table tr:hover td { background: var(--primary-light); }
 .conflict-type.class { background: #fef3e0; color: var(--warning); }
 .conflict-type.room { background: #e8f4fd; color: #2980b9; }
 .conflict-type.meeting { background: #fef3e0; color: #e67e22; }
+.conflict-type.leave { background: #f3e8fd; color: #8e44ad; }
 .conflict-detail { margin: 8px 0; }
 .conflict-entries { font-size: 12px; color: var(--text-light); }
 .conflict-entries span { display: inline-block; margin-right: 14px; }
@@ -477,6 +516,10 @@ table.data-table tr:hover td { background: var(--primary-light); }
   background: var(--card-bg);
   table-layout: fixed;
 }
+/* 任课教师表每一行高度与课表行一致 */
+.teacher-config-table tr {
+  height: var(--row-h);
+}
 /* 基础边框（统一 1px） */
 .teacher-config-table td {
   border: 1px solid var(--border);
@@ -492,8 +535,7 @@ table.data-table tr:hover td { background: var(--primary-light); }
   color: transparent;
   user-select: none;
 }
-/* 科目前行 td：蓝底白字（与课表表头th同色）；字号与课表 cell-subject 一致；
-   padding +0.5px 为实测对齐值（抵消 DPR/border-collapse 的亚像素盒高偏移） */
+/* 科目前行 td：蓝底白字（与课表表头th同色）；字号与课表 cell-subject 一致 */
 .teacher-config-table .tc-td-subj {
   background: var(--primary);
   color: #fff;
@@ -501,7 +543,7 @@ table.data-table tr:hover td { background: var(--primary-light); }
   font-size: clamp(11px, 0.95vw, 14px);
   line-height: 1.2;
   white-space: nowrap;
-  padding: calc(clamp(2px, 0.5vw, 6px) + 0.5px) clamp(2px, 0.4vw, 5px) 0;
+  padding: clamp(2px, 0.5vw, 6px) clamp(2px, 0.4vw, 5px);
 }
 /* 教师行 td：浅蓝底（与课表 .cell-has 同色）；字号字色与课表 .cell-teacher 一致 */
 .teacher-config-table .tc-td-tea {
@@ -511,7 +553,7 @@ table.data-table tr:hover td { background: var(--primary-light); }
   font-size: clamp(10px, 0.8vw, 12px);
   line-height: 1.2;
   white-space: nowrap;
-  padding: 0 clamp(2px, 0.4vw, 5px) calc(clamp(2px, 0.5vw, 6px) + 0.5px);
+  padding: clamp(2px, 0.5vw, 6px) clamp(2px, 0.4vw, 5px);
 }
 /* 空单元格（无色透明，占位） */
 .teacher-config-table .tc-td-empty {
@@ -524,6 +566,12 @@ table.data-table tr:hover td { background: var(--primary-light); }
   background: #fff4a1 !important;
   box-shadow: inset 0 0 0 2px var(--primary);
   cursor: default;
+}
+/* 调课模式下禁用 hover 高亮 */
+.swap-grid-wrap .schedule-grid td:hover,
+.swap-ref-grid .schedule-grid td:hover {
+  background: inherit !important;
+  box-shadow: none !important;
 }
 
 /* 任课教师表悬停高亮：仅教师名行（tc-td-tea）生效
@@ -646,4 +694,193 @@ table.data-table tr:hover td { background: var(--primary-light); }
   font-weight: 600;
   font-size: 13px;
   color: var(--text);
+}
+
+/* ====== 课表调整面板 ====== */
+.swap-mode-select, .swap-class-select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  min-width: 120px;
+}
+
+/* 调课内容布局：主区域 + 右侧参考 */
+.swap-content {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+.swap-main {
+  flex: 1 1 50%;
+  min-width: 0;
+}
+.swap-main h3 {
+  font-size: 14px;
+  margin-bottom: 6px;
+  color: var(--primary-dark);
+}
+.swap-side {
+  flex: 1 1 50%;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.swap-ref h3 {
+  font-size: 13px;
+  margin-bottom: 4px;
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+.swap-ref-grid {
+  overflow: auto;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+/* 主调课网格：压缩行高和内边距 */
+.swap-grid-wrap {
+  max-height: none !important;
+  overflow: visible !important;
+}
+.swap-grid-wrap .schedule-grid th {
+  height: 30px;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.swap-grid-wrap .schedule-grid td {
+  height: 32px;
+  padding: 2px 3px;
+}
+.swap-grid-wrap .schedule-grid .cell-subject {
+  font-size: 12px;
+}
+.swap-grid-wrap .schedule-grid .cell-teacher,
+.swap-grid-wrap .schedule-grid .cell-class {
+  font-size: 10px;
+}
+
+/* 参考课表：更紧凑 */
+.swap-ref-grid .schedule-grid th {
+  height: 26px;
+  padding: 1px 3px;
+  font-size: 11px;
+}
+.swap-ref-grid .schedule-grid td {
+  height: 26px;
+  padding: 1px 2px;
+}
+.swap-ref-grid .schedule-grid .cell-subject {
+  font-size: 10px;
+}
+.swap-ref-grid .schedule-grid .cell-teacher,
+.swap-ref-grid .schedule-grid .cell-class {
+  font-size: 9px;
+}
+
+/* 图例 */
+.swap-legend {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-top: 14px;
+  font-size: 13px;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+}
+.legend-color {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.legend-selected { background: #e74c3c; }
+.legend-swappable { background: #3498db; }
+.legend-target { background: #27ae60; }
+.legend-hint {
+  color: var(--text-light);
+  font-size: 12px;
+  margin-left: auto;
+  max-width: 600px;
+  line-height: 1.5;
+}
+
+/* 调课网格中单元格的交互样式 */
+.swap-grid-wrap .schedule-grid td {
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.swap-grid-wrap .schedule-grid td.cell-empty {
+  cursor: default;
+}
+/* 当前教师课程高亮（班级课表模式中标记当前调课教师的课） */
+.swap-grid-wrap .schedule-grid td.cell-own-teacher {
+  background: #fff3cd !important;
+  border-left: 3px solid #ffc107;
+}
+.swap-grid-wrap .schedule-grid td.cell-own-teacher .cell-subject,
+.swap-grid-wrap .schedule-grid td.cell-own-teacher .cell-teacher {
+  color: #856404;
+}
+/* 选中状态（红色） */
+.swap-grid-wrap .schedule-grid td.cell-swap-selected {
+  background: #e74c3c !important;
+  border: 2px solid #c0392b;
+}
+.swap-grid-wrap .schedule-grid td.cell-swap-selected .cell-subject,
+.swap-grid-wrap .schedule-grid td.cell-swap-selected .cell-teacher,
+.swap-grid-wrap .schedule-grid td.cell-swap-selected .cell-class {
+  color: #fff;
+}
+/* 可对调状态（蓝色） */
+.swap-grid-wrap .schedule-grid td.cell-swap-able {
+  background: #3498db !important;
+  border: 2px solid #2980b9;
+  cursor: pointer;
+}
+.swap-grid-wrap .schedule-grid td.cell-swap-able .cell-subject,
+.swap-grid-wrap .schedule-grid td.cell-swap-able .cell-teacher,
+.swap-grid-wrap .schedule-grid td.cell-swap-able .cell-class {
+  color: #fff;
+}
+/* 目标选中状态（绿色） */
+.swap-grid-wrap .schedule-grid td.cell-swap-target {
+  background: #27ae60 !important;
+  border: 2px solid #1e8449;
+}
+.swap-grid-wrap .schedule-grid td.cell-swap-target .cell-subject,
+.swap-grid-wrap .schedule-grid td.cell-swap-target .cell-teacher,
+.swap-grid-wrap .schedule-grid td.cell-swap-target .cell-class {
+  color: #fff;
+}
+/* 禁选状态 */
+.swap-grid-wrap .schedule-grid td.cell-swap-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* 禁选原因提示 */
+.swap-reject-tooltip {
+  position: fixed;
+  z-index: 1000;
+  background: var(--text);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  max-width: 280px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  pointer-events: none;
+  display: none;
 }
