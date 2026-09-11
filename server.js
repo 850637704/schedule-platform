@@ -9,7 +9,7 @@ const { analyzeConflicts, getStats } = require('./utils/analyzer');
 const { teacherStatistics, classStatistics } = require('./utils/statistics');
 const {
   exportClassSchedules, exportTeacherSchedules,
-  exportSingleClass, exportSingleTeacher, exportTeacherStatistics
+  exportSingleClass, exportSingleTeacher, exportTeacherStatistics, exportClassStatistics
 } = require('./utils/exporter');
 const {
   computeSwapCandidates, executeSwap, getTeacherEntries, getPeriodLabels
@@ -434,9 +434,34 @@ app.get('/api/export/teacher-stats', async (req, res) => {
   if (!data) return res.status(404).json({ error: '无课表数据' });
   try {
     const { entries, week } = filterByWeek(data, req.query.week);
-    const stats = teacherStatistics(entries);
+    let stats = teacherStatistics(entries);
+    // 支持按单个教师筛选导出
+    if (req.query.teacher) {
+      stats = stats.filter(t => t.teacher === req.query.teacher);
+    }
     const buffer = await exportTeacherStatistics(stats);
-    setDownloadHeader(res, `教师课时统计-${week}.xlsx`);
+    const name = req.query.teacher ? `${req.query.teacher}课时统计-${week}` : `教师课时统计-${week}`;
+    setDownloadHeader(res, `${name}.xlsx`);
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    res.status(500).json({ error: '导出失败：' + err.message });
+  }
+});
+
+// 导出班级课时统计
+app.get('/api/export/class-stats', async (req, res) => {
+  const data = loadData();
+  if (!data) return res.status(404).json({ error: '无课表数据' });
+  try {
+    const { entries, week } = filterByWeek(data, req.query.week);
+    let stats = classStatistics(entries);
+    // 支持按单个班级筛选导出
+    if (req.query.class) {
+      stats = stats.filter(c => c.class === req.query.class);
+    }
+    const buffer = await exportClassStatistics(stats);
+    const name = req.query.class ? `${req.query.class}课时统计-${week}` : `班级课时统计-${week}`;
+    setDownloadHeader(res, `${name}.xlsx`);
     res.send(Buffer.from(buffer));
   } catch (err) {
     res.status(500).json({ error: '导出失败：' + err.message });
@@ -451,83 +476,177 @@ app.get('/api/template', async (req, res) => {
       setDownloadHeader(res, '课表模板.xlsx');
       return res.sendFile(TEMPLATE_FILE);
     }
-    // 没有上传过则生成默认模板
+    // 没有上传过则生成默认模板（匹配真实课表模版格式）
     const wb = new ExcelJS.Workbook();
+    wb.creator = '课表管理平台';
     const DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周天'];
-    const PERIODS = ['早', '1', '2', '3', '4', '5', '6', '7', '8', '晚1', '晚2', '晚3', '晚4'];
-    const SUBJECTS = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治', '音乐', '美术', '信息', '心理', '体育', '自习', '语文周考', '数学周考', '英语周考'];
+    const PERIODS = ['早自习', '第1节', '第2节', '第3节', '第4节', '第5节', '第6节', '第7节', '第8节', '晚1节', '晚2节', '晚3节', '晚4节'];
+    const PERIODS_PER_DAY = PERIODS.length; // 13
+    const SUBJECTS = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '地理', '政治', '音乐', '美术', '信息', '心理', '体育', '自习'];
+    const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+    const HEADER_FONT = { bold: true, color: { argb: 'FFFFFFFF' } };
 
+    // 构建日期行和节次行
     const dateRow = ['日期'];
     const periodRow = ['节次'];
     for (let d = 0; d < DAYS.length; d++) {
       dateRow.push(DAYS[d]);
-      for (let p = 0; p < PERIODS.length - 1; p++) dateRow.push(null);
-      for (let p = 0; p < PERIODS.length; p++) periodRow.push(PERIODS[p]);
+      for (let p = 0; p < PERIODS_PER_DAY - 1; p++) dateRow.push(null);
+      for (let p = 0; p < PERIODS_PER_DAY; p++) periodRow.push(PERIODS[p]);
     }
 
+    // 示例班级数据（2个班级，科目交替排列）
     const sampleClasses = [
-      { code: '2401', row: ['语文','数学','英语','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '数学','语文','英语','物理','化学','生物','政治','历史','地理','班会','自习','自习','自习',
-        '英语','数学','语文','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '语文','数学','英语','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '数学','语文','英语','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '英语','数学','语文','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '语文','数学','英语','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习'] },
-      { code: '2402', row: ['数学','语文','英语','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '语文','数学','英语','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '英语','语文','数学','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '数学','语文','英语','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '语文','数学','英语','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '英语','数学','语文','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习',
-        '数学','语文','英语','物理','化学','生物','历史','地理','政治','班会','自习','自习','自习'] }
+      { code: '2401班', row: [
+        '英语','生物','生物','数学','数学','物理','物理','英语','班会','英语','英语','语文','语文',
+        '语文','语文','语文','英语','英语','化学','化学','数学','数学','化学','化学','生物','生物',
+        '语文','生物','生物','英语','英语','体育','物理','物理','语文','数学','数学','物理','物理',
+        '英语','化学','化学','数学','数学','语文','语文','物理','物理','化学','化学','英语','自习',
+        '英语','语文','语文','英语','英语','物理','物理','化学','化学','物理','物理','语文','自习',
+        '语文','生物','生物','英语','英语','语文','语文','数学','数学','生物','生物','数学','数学',
+        '生物','生物','数学','数学','体育','化学','化学','物理','自习','物理','数学','数学','语文'
+      ] },
+      { code: '2402班', row: [
+        '语文','英语','英语','物理','物理','体育','生物','生物','班会','语文','语文','数学','数学',
+        '英语','英语','英语','语文','语文','数学','数学','物理','物理','生物','生物','化学','化学',
+        '英语','物理','物理','数学','数学','化学','化学','语文','英语','物理','自习','数学','数学',
+        '语文','语文','语文','数学','数学','生物','生物','化学','化学','英语','英语','数学','数学',
+        '语文','物理','物理','化学','化学','语文','语文','英语','英语','化学','化学','物理','物理',
+        '英语','数学','数学','英语','英语','生物','生物','语文','语文','语文','英语','生物','生物',
+        '化学','化学','物理','体育','数学','数学','生物','生物','自习','自习','物理','物理','语文'
+      ] }
     ];
 
-    for (const weekType of ['单周', '双周']) {
-      const sheet = wb.addWorksheet(`${weekType}总课表`);
-      sheet.addRow([weekType]);
+    // 1单周总课表 & 2双周总课表
+    for (const weekType of ['1单周总课表', '2双周总课表']) {
+      const sheet = wb.addWorksheet(weekType);
+      const title = weekType.replace(/^\d+/, '');
+      sheet.addRow([title]);
       sheet.addRow(dateRow);
       sheet.addRow(periodRow);
       for (const c of sampleClasses) sheet.addRow([c.code, ...c.row]);
+      // 合并标题行 A1:CN1
+      sheet.mergeCells(1, 1, 1, 1 + DAYS.length * PERIODS_PER_DAY);
+      // 合并日期行每个星期名
+      for (let d = 0; d < DAYS.length; d++) {
+        const startCol = 2 + d * PERIODS_PER_DAY;
+        sheet.mergeCells(2, startCol, 2, startCol + PERIODS_PER_DAY - 1);
+      }
+      // 标题行样式
       sheet.getRow(1).getCell(1).font = { bold: true, size: 14 };
+      sheet.getRow(1).getCell(1).alignment = { horizontal: 'center' };
+      // 日期行和节次行样式
       for (const r of [2, 3]) {
         sheet.getRow(r).eachCell({ includeEmpty: true }, cell => {
-          cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
-          cell.alignment = { horizontal: 'center' };
+          cell.font = { ...HEADER_FONT };
+          cell.fill = { ...HEADER_FILL };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
         });
       }
-      sheet.getColumn(1).width = 10;
+      sheet.getRow(3).height = 35;
+      sheet.getColumn(1).width = 8;
     }
 
-    const tSheet = wb.addWorksheet('教师安排');
-    tSheet.addRow(['单周']);
+    // 3教师安排
+    const tSheet = wb.addWorksheet('3教师安排');
     tSheet.addRow(['班级', '班主任', ...SUBJECTS]);
-    tSheet.addRow(['2401', '杨老师', '姚老师', '刘老师', '李老师', '姚老师', '杨老师', '周老师', '吴老师', '陈老师', '黄老师', '林老师', '何老师', '肖老师', '张老师', '杨老师', '姚老师', '刘老师', '李老师']);
-    tSheet.addRow(['2402', '周老师', '姚老师', '程老师', '唐老师', '姚老师', '杨老师', '周老师', '吴老师', '陈老师', '黄老师', '林老师', '何老师', '肖老师', '张老师', '周老师', '姚老师', '程老师', '唐老师']);
-    tSheet.getRow(2).eachCell(cell => {
-      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+    tSheet.addRow(['2401班', '杨良英', '姚绍兰', '刘婷', '李琼英', '姚伟', '杨良英', '周晓明', '', '', '', '', '', '', '', '杨晓鑫', '杨良英']);
+    tSheet.addRow(['2402班', '周晓明', '姚绍兰', '程远新', '唐思莲', '姚伟', '杨良英', '周晓明', '', '', '', '', '', '', '', '杨晓鑫', '周晓明']);
+    tSheet.getRow(1).eachCell(cell => {
+      cell.font = { ...HEADER_FONT };
+      cell.fill = { ...HEADER_FILL };
+      cell.alignment = { horizontal: 'center' };
     });
-    tSheet.columns.forEach((col, i) => { col.width = i < 2 ? 10 : 12; });
+    tSheet.getColumn(1).width = 10;
+    tSheet.columns.forEach((col, i) => { if (i > 0) col.width = 10; });
 
-    const note = wb.addWorksheet('格式说明');
-    note.getColumn(1).width = 90;
-    const lines = [
-      '本平台上传「高中总课表」工作簿，需包含以下工作表：',
-      '1.「单周总课表」「双周总课表」（可只含其一）：',
-      '   第1行：标题（单周/双周）',
-      '   第2行：日期行，第一列填「日期」，其后按周一~周天分块，每个星期名占该块首列',
-      '   第3行：节次行，第一列填「节次」，其后每个星期块填时段：早、1、2、3、4、5、6、7、8、晚1、晚2、晚3、晚4',
-      '   第4行起：每行一个班级（首列为班级代号，如2401），单元格填该时段的科目',
-      '2.「教师安排」表：表头 班级、班主任、各科目列；每行填该班每个科目的任课教师',
-      '   平台会据此反查教师：总课表只有科目，教师通过(班级,科目)从本表查出。班会→班主任，自习/社团 不计教师。',
-      '说明：',
-      '  - 科目种类不限，平台按表头自适应',
-      '  - 班级数量不限，增减班级只需在总课表和教师安排表中增减行',
-      '  - 时段/星期数量不限，平台按表头自适应',
-      '  - 支持 .xlsx / .xls / .csv 格式'
+    // 4会议时间
+    const mSheet = wb.addWorksheet('4会议时间');
+    const meetingDateRow = ['星期', ...dateRow.slice(1)];
+    mSheet.addRow(meetingDateRow);
+    mSheet.addRow(periodRow);
+    // 会议行：在对应节次列填会议名称
+    const meetingRow = ['会议'];
+    // 填充会议名称到对应位置（与真实模版一致）
+    const meetings = [
+      { col: 5, name: '班主任会' },   // 周一第3节
+      { col: 7, name: '语文组会' },   // 周一第5节
+      { col: 16, name: '理综组会' },  // 周二第1节
+      { col: 20, name: '英语组会' },  // 周二第5节
+      { col: 31, name: '文综组会' },  // 周三第2节
+      { col: 33, name: '数学组会' },  // 周三第4节
+      { col: 42, name: '艺体组会' }, // 周四第1节
     ];
-    lines.forEach(l => note.addRow([l]));
+    for (const m of meetings) {
+      meetingRow[m.col - 1] = m.name;
+    }
+    mSheet.addRow(meetingRow);
+    // 合并日期行每个星期名
+    for (let d = 0; d < DAYS.length; d++) {
+      const startCol = 2 + d * PERIODS_PER_DAY;
+      mSheet.mergeCells(1, startCol, 1, startCol + PERIODS_PER_DAY - 1);
+    }
+    // 合并会议名称（跨2行2列）
+    for (const m of meetings) {
+      mSheet.mergeCells(3, m.col, 4, m.col + 1);
+    }
+    // 合并 A3:A4
+    mSheet.mergeCells(3, 1, 4, 1);
+    // 样式
+    for (const r of [1, 2]) {
+      mSheet.getRow(r).eachCell({ includeEmpty: true }, cell => {
+        cell.font = { ...HEADER_FONT };
+        cell.fill = { ...HEADER_FILL };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+    }
+    mSheet.getRow(2).height = 35;
+    mSheet.getRow(3).eachCell({ includeEmpty: true }, cell => {
+      if (cell.value) {
+        cell.font = { bold: true };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      }
+    });
+    mSheet.getColumn(1).width = 8;
+
+    // 5教师调休
+    const lSheet = wb.addWorksheet('5教师调休');
+    lSheet.addRow(['周一', '周二', '周三', '周四', '周五', '周六', '周日']);
+    lSheet.addRow(['', '', '', '刘婷', '樊启云', '周晓黎', '']);
+    lSheet.addRow(['', '', '', '周晓明', '汤秋风', '唐思莲', '']);
+    lSheet.addRow(['', '', '', '唐韵琪', '蒋杨洋', '姚绍兰', '']);
+    lSheet.addRow(['', '', '', '张毅', '高波', '孙启军', '']);
+    lSheet.getRow(1).eachCell(cell => {
+      cell.font = { ...HEADER_FONT };
+      cell.fill = { ...HEADER_FILL };
+      cell.alignment = { horizontal: 'center' };
+    });
+    lSheet.columns.forEach(col => { col.width = 12; });
+
+    // 6作息时间（空表）
+    wb.addWorksheet('6作息时间');
+
+    // 7调课记录
+    const rSheet = wb.addWorksheet('7调课记录');
+    // 第1行：序号 | 单双周 | 调出 | 调入 | 变动日期
+    rSheet.addRow(['序号', '单双周', '调出', null, null, null, '调入', null, null, null, '变动日期']);
+    // 第2行：子表头
+    rSheet.addRow([null, null, '班级', '节次', '科目', '教师', '班级', '节次', '科目', '教师', null]);
+    // 合并单元格
+    rSheet.mergeCells('A1:A2'); // 序号
+    rSheet.mergeCells('B1:B2'); // 单双周
+    rSheet.mergeCells('C1:F1'); // 调出
+    rSheet.mergeCells('G1:J1'); // 调入
+    rSheet.mergeCells('K1:K2'); // 变动日期
+    // 样式
+    for (const r of [1, 2]) {
+      rSheet.getRow(r).eachCell({ includeEmpty: true }, cell => {
+        cell.font = { ...HEADER_FONT };
+        cell.fill = { ...HEADER_FILL };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+    }
+    rSheet.columns.forEach((col, i) => { col.width = i === 0 ? 8 : 10; });
 
     const buffer = await wb.xlsx.writeBuffer();
     setDownloadHeader(res, '课表模板.xlsx');

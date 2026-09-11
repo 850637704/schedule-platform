@@ -184,7 +184,7 @@ async function loadOverview() {
   }
   initWeekBar(data.weeks, data.week || currentWeek);
   $('#overview-cards').innerHTML = `
-    ${statCard(data.totalEntries, '课表记录数', 'primary')}
+    ${statCard(data.totalEntries, `${data.week || ''}课表记录数`, 'primary')}
     ${statCard(data.classCount, '班级数', 'success')}
     ${statCard(data.teacherCount, '教师数', 'warning')}
     ${statCard(data.subjectCount, '科目数', 'primary')}
@@ -195,6 +195,18 @@ async function loadOverview() {
     <p style="margin-top:10px"><strong>班级列表：</strong>${data.classes.map(escapeHtml).join('、')}</p>
     <p style="margin-top:6px"><strong>教师列表：</strong>${data.teachers.map(escapeHtml).join('、')}</p>
   `;
+  // 绑定导出按钮（带周次参数）
+  const weekLabel = currentWeek ? `（${currentWeek}）` : '';
+  const exportClasses = $('#export-all-classes');
+  const exportTeachers = $('#export-all-teachers');
+  if (exportClasses) {
+    exportClasses.textContent = `导出${weekLabel}全部班级课表`;
+    exportClasses.onclick = () => window.open(exportUrl('/api/export/classes'), '_blank');
+  }
+  if (exportTeachers) {
+    exportTeachers.textContent = `导出${weekLabel}全部教师课表`;
+    exportTeachers.onclick = () => window.open(exportUrl('/api/export/teachers'), '_blank');
+  }
 }
 
 function statCard(num, label, type = 'primary') {
@@ -490,6 +502,34 @@ async function loadStats() {
   updateStatsFilterVisibility();
   loadTeacherStats(lastStatsTeacherSel);
   loadClassStats(lastStatsClassSel);
+  updateStatsExportButton();
+  // 绑定导出按钮
+  const statsExport = $('#export-stats');
+  if (statsExport && !statsExport.dataset.bound) {
+    statsExport.dataset.bound = 1;
+    statsExport.onclick = () => {
+      if (activeStatsTab === 'teacher-stats') {
+        let url = exportUrl('/api/export/teacher-stats');
+        if (lastStatsTeacherSel) url += (url.includes('?') ? '&' : '?') + `teacher=${encodeURIComponent(lastStatsTeacherSel)}`;
+        window.open(url, '_blank');
+      } else {
+        let url = exportUrl('/api/export/class-stats');
+        if (lastStatsClassSel) url += (url.includes('?') ? '&' : '?') + `class=${encodeURIComponent(lastStatsClassSel)}`;
+        window.open(url, '_blank');
+      }
+    };
+  }
+}
+
+// 更新导出按钮文字，反映当前 tab 和选择
+function updateStatsExportButton() {
+  const btn = $('#export-stats');
+  if (!btn) return;
+  if (activeStatsTab === 'teacher-stats') {
+    btn.textContent = lastStatsTeacherSel ? `导出 ${lastStatsTeacherSel} 课时统计` : '导出全部教师课时统计';
+  } else {
+    btn.textContent = lastStatsClassSel ? `导出 ${lastStatsClassSel} 课时统计` : '导出全部班级课时统计';
+  }
 }
 
 // 初始化课时统计的教师/班级筛选组合框
@@ -499,17 +539,24 @@ async function initStatsFilter() {
   if (!tInput.dataset.inited) {
     const data = await api('/api/teachers' + weekParam());
     if (!data.error && data.teachers) {
-      const all = data.teachers.slice().sort();
-      initCombobox('stats-teacher-select', all, lastStatsTeacherSel, (val) => {
-        lastStatsTeacherSel = val;
-        loadTeacherStats(val);
-      }, groupTeachers);
-      // 用户清空输入框时，清除筛选并展示全部教师
+      const all = ['全部教师', ...data.teachers.slice().sort()];
+      initCombobox('stats-teacher-select', all, lastStatsTeacherSel || '全部教师', (val) => {
+        if (val === '全部教师') {
+          lastStatsTeacherSel = '';
+          loadTeacherStats('');
+        } else {
+          lastStatsTeacherSel = val;
+          loadTeacherStats(val);
+        }
+        updateStatsExportButton();
+      }, groupTeachersWithAll);
+      // 用户清空输入框时，恢复为"全部教师"
       tInput.addEventListener('input', () => {
         if (!tInput.value.trim()) {
           tInput._value = '';
           lastStatsTeacherSel = '';
           loadTeacherStats('');
+          updateStatsExportButton();
         }
       });
       tInput.dataset.inited = 1;
@@ -518,17 +565,24 @@ async function initStatsFilter() {
   if (!cInput.dataset.inited) {
     const data = await api('/api/classes' + weekParam());
     if (!data.error && data.classes) {
-      const all = data.classes.slice().sort();
-      initCombobox('stats-class-select', all, lastStatsClassSel, (val) => {
-        lastStatsClassSel = val;
-        loadClassStats(val);
-      }, groupClasses);
-      // 用户清空输入框时，清除筛选并展示全部班级
+      const all = ['全部班级', ...data.classes.slice().sort()];
+      initCombobox('stats-class-select', all, lastStatsClassSel || '全部班级', (val) => {
+        if (val === '全部班级') {
+          lastStatsClassSel = '';
+          loadClassStats('');
+        } else {
+          lastStatsClassSel = val;
+          loadClassStats(val);
+        }
+        updateStatsExportButton();
+      }, groupClassesWithAll);
+      // 用户清空输入框时，恢复为"全部班级"
       cInput.addEventListener('input', () => {
         if (!cInput.value.trim()) {
           cInput._value = '';
           lastStatsClassSel = '';
           loadClassStats('');
+          updateStatsExportButton();
         }
       });
       cInput.dataset.inited = 1;
@@ -618,6 +672,7 @@ $$('.tab').forEach(tab => {
     $('#tab-' + tab.dataset.tab).classList.add('active');
     activeStatsTab = tab.dataset.tab;
     updateStatsFilterVisibility();
+    updateStatsExportButton();
   });
 });
 
@@ -943,6 +998,24 @@ function groupTeachers(list) {
   const entries = [...groups.entries()].sort((a,b) => a[0].localeCompare(b[0]));
   for (const [,items] of entries) items.sort();
   return entries.map(([k,items]) => ({ groupTitle: k, items }));
+}
+
+// 教师分组（含"全部教师"选项，置顶显示）
+function groupTeachersWithAll(list) {
+  const allItem = list.filter(t => t === '全部教师');
+  const rest = list.filter(t => t !== '全部教师');
+  const groups = groupTeachers(rest);
+  if (allItem.length) groups.unshift({ groupTitle: '全部', items: allItem });
+  return groups;
+}
+
+// 班级分组（含"全部班级"选项，置顶显示）
+function groupClassesWithAll(list) {
+  const allItem = list.filter(c => c === '全部班级');
+  const rest = list.filter(c => c !== '全部班级');
+  const groups = groupClasses(rest);
+  if (allItem.length) groups.unshift({ groupTitle: '全部', items: allItem });
+  return groups;
 }
 
 

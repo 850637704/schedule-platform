@@ -389,4 +389,25 @@ async function exportTeacherStatistics(stats) {
   return buffer;
 }
 
-module.exports = { exportClassSchedules, exportTeacherSchedules, exportSingleClass, exportSingleTeacher, exportTeacherStatistics };
+// 导出班级课时统计
+async function exportClassStatistics(stats) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = '课表管理平台';
+  const sheet = wb.addWorksheet('班级课时统计');
+  sheet.addRow(['班级', '早自习', '白课', '晚自习', '周课时']);
+  sheet.getRow(1).eachCell(cell => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+  });
+  for (const s of stats) {
+    sheet.addRow([s.class, s.morningHours || 0, s.dayHours || 0, s.eveningHours || 0, s.weeklyHours]);
+  }
+  for (let i = 1; i <= 5; i++) {
+    sheet.getColumn(i).width = i === 1 ? 14 : 12;
+  }
+  const buffer = await wb.xlsx.writeBuffer();
+  return buffer;
+}
+
+module.exports = { exportClassSchedules, exportTeacherSchedules, exportSingleClass, exportSingleTeacher, exportTeacherStatistics, exportClassStatistics };

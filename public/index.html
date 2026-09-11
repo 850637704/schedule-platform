@@ -53,8 +53,8 @@
           <div id="overview-info"></div>
         </div>
         <div class="export-bar">
-          <button class="btn btn-primary" onclick="window.open('/api/export/classes','_blank')">导出全部班级课表</button>
-          <button class="btn btn-primary" onclick="window.open('/api/export/teachers','_blank')">导出全部教师课表</button>
+          <button class="btn btn-primary" id="export-all-classes">导出全部班级课表</button>
+          <button class="btn btn-primary" id="export-all-teachers">导出全部教师课表</button>
         </div>
       </section>
 
@@ -185,7 +185,7 @@
           <button class="tab" data-tab="class-stats">班级课时统计</button>
         </div>
         <div class="export-bar">
-          <button class="btn btn-primary" onclick="window.open('/api/export/teacher-stats','_blank')">导出教师课时统计</button>
+          <button class="btn btn-primary" id="export-stats">导出教师课时统计</button>
         </div>
         <div id="tab-teacher-stats" class="tab-content active">
           <div id="teacher-stats-table" class="table-wrap"></div>
