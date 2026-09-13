@@ -14,6 +14,9 @@ const {
 const {
   computeSwapCandidates, executeSwap, getTeacherEntries, getPeriodLabels
 } = require('./utils/swap');
+const {
+  modifyWorkbookOnSwap, appendSwapRecord, getSwapRecords, getGradeLevel, WEEKDAY_NAMES: WB_WEEKDAY_NAMES
+} = require('./utils/workbookWriter');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -91,7 +94,7 @@ const TEMPLATE_FILE = path.join(UPLOAD_DIR, 'template.xlsx');
 app.post('/api/upload', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '请上传文件' });
   try {
-    const { entries, sheets, weeks, teacherMap, meetings, leaves } = parseWorkbook(req.file.path);
+    const { entries, sheets, weeks, teacherMap, meetings, leaves, swapRecords } = parseWorkbook(req.file.path);
     if (!entries.length) {
       return res.status(400).json({ error: '未能从文件中解析出课表数据，请检查文件格式。需要包含「总课表」和「教师安排」工作表。' });
     }
@@ -105,12 +108,13 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
       weeks: weeks || ['通用'],
       teacherMap: teacherMap || {},
       meetings: meetings || [],
-      leaves: leaves || []
+      leaves: leaves || [],
+      swapRecords: swapRecords || []
     };
     saveData(data);
     // 保存上传的文件作为模板（覆盖旧的）
     fs.copyFileSync(req.file.path, TEMPLATE_FILE);
-    res.json({ ok: true, ...stats, sheets, weeks: data.weeks, meetings: data.meetings || [], leaves: data.leaves || [] });
+    res.json({ ok: true, ...stats, sheets, weeks: data.weeks, meetings: data.meetings || [], leaves: data.leaves || [], swapRecords: data.swapRecords });
   } catch (err) {
     res.status(500).json({ error: '解析失败：' + err.message });
   } finally {
@@ -668,13 +672,13 @@ app.get('/api/swap/candidates', (req, res) => {
   const weekType = week || (data.weeks || ['通用'])[0];
   const result = computeSwapCandidates(entries, {
     class: className, weekday: Number(weekday), period: Number(period), weekType
-  }, weekType, data.meetings, data.teacherMap);
+  }, weekType, data.meetings, data.teacherMap, data.entries);
   if (result.error) return res.status(400).json({ error: result.error });
   res.json(result);
 });
 
 // 执行对调
-app.post('/api/swap/execute', (req, res) => {
+app.post('/api/swap/execute', async (req, res) => {
   const data = loadData();
   if (!data) return res.status(404).json({ error: '无课表数据' });
   const { source, target, week } = req.body;
@@ -687,7 +691,50 @@ app.post('/api/swap/execute', (req, res) => {
   };
   try {
     executeSwap(data.entries, source, target, weekType, data.meetings, data.teacherMap);
+
+    // 高一/高二：同步关联科目到对周 JSON 数据
+    // 信息(单周)<->心理(双周)，美术(单周)<->音乐(双周)
+    const grade = getGradeLevel(source.class);
+    if (grade !== 3 && weekType !== '通用' && data.weeks && data.weeks.length > 1) {
+      const otherWeekType = weekType === '单周' ? '双周' : '单周';
+      if (data.weeks.includes(otherWeekType)) {
+        // 在对周工作表中，同一班级同一时段也需要交换
+        const otherSource = { ...source };
+        const otherTarget = { ...target };
+        executeSwap(data.entries, otherSource, otherTarget, otherWeekType, data.meetings, data.teacherMap);
+      }
+    }
+
     saveData(data);
+
+    // 同步修改 Excel 工作簿并追加调课记录
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const sourcePeriodLabel = source.periodLabel || `第${source.period}节`;
+    const targetPeriodLabel = target.periodLabel || `第${target.period}节`;
+    const record = {
+      weekType,
+      fromClass: source.class,
+      fromPeriod: `${WB_WEEKDAY_NAMES[source.weekday] || ''}${sourcePeriodLabel}`,
+      fromSubject: source.subject,
+      fromTeacher: source.teacher,
+      toClass: target.class,
+      toPeriod: `${WB_WEEKDAY_NAMES[target.weekday] || ''}${targetPeriodLabel}`,
+      toSubject: target.subject,
+      toTeacher: target.teacher,
+      changeDate: timestamp
+    };
+    // 修改 Excel 工作簿中的课程单元格
+    if (fs.existsSync(TEMPLATE_FILE)) {
+      try {
+        await modifyWorkbookOnSwap(TEMPLATE_FILE, source, target, weekType);
+        await appendSwapRecord(TEMPLATE_FILE, record);
+      } catch (e) {
+        console.error('修改工作簿失败（不影响调课结果）:', e.message);
+      }
+    }
+
     // 返回更新后的班级课表和教师参考课表
     const { entries } = filterByWeek(data, weekType);
     const classEntries = entries.filter(e => e.class === source.class);
@@ -723,6 +770,16 @@ app.post('/api/swap/undo', (req, res) => {
   const { entries } = filterByWeek(data, weekType);
   const periodLabels = getPeriodLabels(entries);
   res.json({ ok: true, canUndo: false, entries, periodLabels });
+});
+
+// 获取调课记录
+app.get('/api/swap/records', async (req, res) => {
+  try {
+    const records = await getSwapRecords(TEMPLATE_FILE);
+    res.json({ records });
+  } catch (err) {
+    res.status(500).json({ error: '读取调课记录失败：' + err.message });
+  }
 });
 
 // 删除当前课表数据

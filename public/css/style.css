@@ -817,6 +817,41 @@ table.data-table tr:hover td { background: var(--primary-light); }
   line-height: 1.5;
 }
 
+/* 调课记录列表 */
+.swap-records-section {
+  margin-top: 18px;
+  padding: 14px 18px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.swap-records-section h3 {
+  margin: 0 0 10px 0;
+  font-size: 15px;
+  color: var(--text);
+}
+.swap-records-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.swap-record-item {
+  padding: 6px 10px;
+  background: #fff;
+  border-radius: 4px;
+  border: 1px solid #e8e8e8;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.swap-record-empty {
+  color: var(--text-light);
+  font-size: 13px;
+  padding: 8px 0;
+}
+
 /* 调课网格中单元格的交互样式 */
 .swap-grid-wrap .schedule-grid td {
   cursor: pointer;

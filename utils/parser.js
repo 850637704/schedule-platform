@@ -392,6 +392,46 @@ function parseLeaveSheet(sheet) {
   return leaves;
 }
 
+// 解析「7调课记录」工作表
+// 表头结构（2行）：
+//   Row 1: 序号 | 单双周 | 调出(合并C1:F1) | 调入(合并G1:J1) | 变动日期
+//   Row 2:      |        | 班级 | 节次 | 科目 | 教师 | 班级 | 节次 | 科目 | 教师 |
+//   Row 3+: 数据行
+// 返回：[{ seq, weekType, fromClass, fromPeriod, fromSubject, fromTeacher, toClass, toPeriod, toSubject, toTeacher, changeDate }]
+function parseSwapRecordSheet(sheet) {
+  if (!sheet) return [];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blank: false });
+  if (rows.length < 3) return [];
+  // 查找表头行（包含"序号"）
+  let headerRow = -1;
+  for (let r = 0; r < Math.min(5, rows.length); r++) {
+    if (rows[r] && String(rows[r][0] || '').includes('序号')) { headerRow = r; break; }
+  }
+  if (headerRow === -1) return [];
+  // 数据行从 headerRow + 2 开始（表头占2行）
+  const records = [];
+  for (let r = headerRow + 2; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row) continue;
+    const seq = row[0];
+    if (seq == null || seq === '') continue;
+    records.push({
+      seq: Number(seq) || seq,
+      weekType: String(row[1] || '').trim(),
+      fromClass: String(row[2] || '').trim(),
+      fromPeriod: String(row[3] || '').trim(),
+      fromSubject: String(row[4] || '').trim(),
+      fromTeacher: String(row[5] || '').trim(),
+      toClass: String(row[6] || '').trim(),
+      toPeriod: String(row[7] || '').trim(),
+      toSubject: String(row[8] || '').trim(),
+      toTeacher: String(row[9] || '').trim(),
+      changeDate: String(row[10] || '').trim()
+    });
+  }
+  return records;
+}
+
 // 判断是否为高中总课表格式（含 总课表 + 教师安排 工作表）
 function isSchoolWorkbook(wb) {
   const names = wb.SheetNames;
@@ -442,7 +482,13 @@ function parseSchoolFormat(wb) {
   if (leaves.length) {
     sheetsInfo.push({ name: leaveSheetName, format: 'leaves', count: leaves.length });
   }
-  return { entries: allEntries, sheets: sheetsInfo, weeks, teacherSubjects, teacherMap, meetings, leaves };
+  // 解析「7调课记录」工作表
+  const swapRecordSheetName = names.find(n => /调课记录/.test(n));
+  const swapRecords = swapRecordSheetName ? parseSwapRecordSheet(wb.Sheets[swapRecordSheetName]) : [];
+  if (swapRecords.length) {
+    sheetsInfo.push({ name: swapRecordSheetName, format: 'swap-records', count: swapRecords.length });
+  }
+  return { entries: allEntries, sheets: sheetsInfo, weeks, teacherSubjects, teacherMap, meetings, leaves, swapRecords };
 }
 
 // ========== 旧格式兼容（列表 / 简单网格） ==========
@@ -585,7 +631,7 @@ function parseWorkbook(filePath) {
     if (seen.has(key)) return false;
     seen.add(key); return true;
   });
-  return { entries: dedup, sheets: sheetsInfo, weeks: ['通用'] };
+  return { entries: dedup, sheets: sheetsInfo, weeks: ['通用'], swapRecords: [] };
 }
 
-module.exports = { parseWorkbook, parseWeekday, parsePeriod, parseCellContent, parseMeetingSheet, parseLeaveSheet, MEETING_SUBJECT_MAP };
+module.exports = { parseWorkbook, parseWeekday, parsePeriod, parseCellContent, parseMeetingSheet, parseLeaveSheet, parseSwapRecordSheet, MEETING_SUBJECT_MAP };

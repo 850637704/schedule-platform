@@ -1081,6 +1081,8 @@ async function loadSwapView() {
   } else {
     $('#swap-grid').innerHTML = '';
   }
+  // 加载调课记录
+  loadSwapRecords();
 }
 
 // 教师选中后：加载该教师的课表作为调课主网格
@@ -1274,7 +1276,7 @@ async function selectSource(td, weekday, period) {
   const teacher = td.dataset.teacher;
   const subject = td.dataset.subject;
   if (!teacher) { toast('该课程无教师，不可调', 'error'); return; }
-  swapState.source = { class: className, weekday, period, teacher, subject };
+  swapState.source = { class: className, weekday, period, teacher, subject, periodLabel: swapState.periodLabels ? (swapState.periodLabels[period] || `第${period}节`) : `第${period}节` };
   swapState.target = null;
   $('#swap-execute-btn').disabled = true;
   // 调用 API 获取候选（基于源课程所在班级）
@@ -1302,7 +1304,8 @@ function selectTarget(weekday, period) {
     class: swapState.source.class,
     weekday, period,
     teacher: cand.teacher,
-    subject: cand.subject
+    subject: cand.subject,
+    periodLabel: cand.periodLabel || (swapState.periodLabels ? (swapState.periodLabels[period] || `第${period}节`) : `第${period}节`)
   };
   $('#swap-execute-btn').disabled = false;
   renderSwapGridState();
@@ -1388,6 +1391,8 @@ async function executeSwapAction() {
     }
     // 同步刷新教师课表视图
     if (lastTeacherSel && activeView === 'teacher') loadTeacherSchedule(lastTeacherSel);
+    // 刷新调课记录
+    loadSwapRecords();
   } finally {
     btn.disabled = true;
     btn.textContent = '执行调整';
@@ -1439,4 +1444,22 @@ function resetSwapState() {
   swapState.class = '';
   swapState.canUndo = false;
   $('#swap-undo-btn').disabled = true;
+}
+
+// 加载调课记录
+async function loadSwapRecords() {
+  const list = $('#swap-records-list');
+  if (!list) return;
+  const data = await api('/api/swap/records');
+  if (data.error || !data.records || !data.records.length) {
+    list.innerHTML = '<div class="swap-record-empty">暂无调课记录</div>';
+    return;
+  }
+  const items = data.records.map(r => {
+    const cls = r.fromClass || r.toClass || '';
+    const wt = r.weekType || '';
+    const text = `${cls}：${wt}${r.fromPeriod}${r.fromSubject}（${r.fromTeacher}）与${wt}${r.toPeriod}${r.toSubject}（${r.toTeacher}）互换${r.changeDate}`;
+    return `<div class="swap-record-item">${escapeHtml(text)}</div>`;
+  });
+  list.innerHTML = items.join('');
 }

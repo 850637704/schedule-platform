@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>课表管理平台</title>
-  <link rel="stylesheet" href="/css/style.css?v=20260909s7">
+  <link rel="stylesheet" href="/css/style.css?v=20260913s1">
 </head>
 <body>
   <div class="app">
@@ -153,6 +153,10 @@
           <span class="legend-item"><span class="legend-color legend-target"></span>选中的对调节次</span>
           <span class="legend-hint">操作说明：① 单击选中要调的课程（变红，再次单击取消）→ ② 单击蓝色可调课程选为对调目标（变绿）→ ③ 点击「执行调整」完成对调。注：换课老师只能在同班级；右键查看禁选原因，左键取消。</span>
         </div>
+        <div id="swap-records-section" class="swap-records-section">
+          <h3>调课记录</h3>
+          <div id="swap-records-list" class="swap-records-list"></div>
+        </div>
       </section>
 
       <!-- 课时统计 -->
@@ -208,6 +212,6 @@
       <div id="toast" class="toast"></div>
     </main>
   </div>
-  <script src="/js/app.js?v=20260910s2"></script>
+  <script src="/js/app.js?v=20260913s1"></script>
 </body>
 </html>
