@@ -7,12 +7,20 @@
     "start": "node server.js",
     "dev": "node server.js"
   },
-  "keywords": ["课表", "schedule", "排课", "班级", "教师"],
+  "keywords": [
+    "课表",
+    "schedule",
+    "排课",
+    "班级",
+    "教师"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "crypto-js": "^4.1.1",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",
+    "express-session": "^1.19.0",
     "multer": "^1.4.5-lts.1",
     "xlsx": "^0.18.5"
   }

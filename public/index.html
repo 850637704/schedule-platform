@@ -21,6 +21,7 @@
         <a href="#" class="nav-item" data-view="swap">课表调整</a>
         <a href="#" class="nav-item" data-view="stats">课时统计</a>
         <a href="#" class="nav-item" data-view="analysis">冲突分析</a>
+        <a href="#" class="nav-item" data-view="accounts" style="display:none">管理账户</a>
       </nav>
       <div class="sidebar-footer">
         <div id="data-status" class="data-status">未上传课表</div>
@@ -30,7 +31,10 @@
     <main class="content">
             <!-- 上传课表 -->
       <section id="view-upload" class="view active">
-        <h1>上传课表</h1>
+        <div class="upload-header">
+          <h1>上传课表</h1>
+          <button id="login-btn" class="btn btn-outline login-btn">登录</button>
+        </div>
         <p class="hint">支持 Excel(.xlsx/.xls) 和 CSV 文件。请先下载模板了解格式要求。</p>
         <div class="upload-actions">
           <a href="/api/template" class="btn btn-outline">⬇ 下载模板</a>
@@ -128,13 +132,16 @@
             <label class="filter-label">年级班级：</label>
             <select id="swap-class-select" class="swap-class-select"></select>
           </div>
-          <button class="btn btn-primary" id="swap-execute-btn" disabled>执行调整</button>
-          <button class="btn btn-outline" id="swap-undo-btn" disabled>撤销</button>
+          <button class="btn btn-primary" id="swap-execute-btn" disabled>执行调整</button><button class="btn btn-outline" id="swap-undo-btn" disabled>撤销</button>
         </div>
         <div class="swap-content">
           <div class="swap-main">
             <h3 id="swap-grid-title"></h3>
             <div id="swap-grid" class="schedule-grid-wrap swap-grid-wrap"></div>
+            <div id="swap-records-section" class="swap-records-section">
+              <h3 id="swap-records-title">调课记录</h3>
+              <div id="swap-records-list" class="swap-records-list"></div>
+            </div>
           </div>
           <div class="swap-side">
             <div class="swap-ref">
@@ -147,15 +154,11 @@
             </div>
           </div>
         </div>
-        <div class="swap-legend">
+        <div class="swap-legend" id="swap-legend">
           <span class="legend-item"><span class="legend-color legend-selected"></span>当前选中的节次</span>
           <span class="legend-item"><span class="legend-color legend-swappable"></span>当前可调的节次</span>
           <span class="legend-item"><span class="legend-color legend-target"></span>选中的对调节次</span>
-          <span class="legend-hint">操作说明：① 单击选中要调的课程（变红，再次单击取消）→ ② 单击蓝色可调课程选为对调目标（变绿）→ ③ 点击「执行调整」完成对调。注：换课老师只能在同班级；右键查看禁选原因，左键取消。</span>
-        </div>
-        <div id="swap-records-section" class="swap-records-section">
-          <h3>调课记录</h3>
-          <div id="swap-records-list" class="swap-records-list"></div>
+          <span class="legend-hint">操作说明：① 单击选中要调的课程（变红，再次单击取消）→ ② 单击蓝色可调课程选为对调目标（变绿）→ ③ 点击「执行调整」完成对调。注：换课老师只能在同班级；右键查看禁选原因，左击取消。</span>
         </div>
       </section>
 
@@ -208,6 +211,61 @@
         <div id="analysis-summary" class="stat-cards"></div>
         <div id="analysis-detail" class="analysis-detail"></div>
       </section>
+
+      <!-- 账号管理（仅超管可见） -->
+      <section id="view-accounts" class="view">
+        <h1>管理账户</h1>
+        <div class="accounts-section">
+          <h2>管理员列表</h2>
+          <div class="account-actions">
+            <input id="new-admin-account" class="input" placeholder="新管理员账号">
+            <input id="new-admin-password" class="input" type="password" placeholder="密码">
+            <button class="btn btn-primary" id="add-admin-btn">添加管理员</button>
+          </div>
+          <table id="admin-table" class="data-table">
+            <thead><tr><th>账号</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody id="admin-tbody"></tbody>
+          </table>
+        </div>
+        <div class="accounts-section">
+          <h2>超管密码管理</h2>
+          <div class="account-actions">
+            <input id="new-super-password" class="input" type="password" placeholder="新增密码">
+            <button class="btn btn-primary" id="add-super-password-btn">添加密码</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>密码哈希</th><th>类型</th><th>操作</th></tr></thead>
+            <tbody id="super-password-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 登录弹窗 -->
+      <div id="login-modal" class="modal-overlay" style="display:none">
+        <div class="modal-box">
+          <h2>登录</h2>
+          <div class="modal-body">
+            <input id="login-account" class="input" placeholder="账号">
+            <input id="login-password" class="input" type="password" placeholder="密码">
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" id="login-cancel">取消</button>
+            <button class="btn btn-primary" id="login-submit">确认登录</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 登出确认弹窗 -->
+      <div id="logout-modal" class="modal-overlay" style="display:none">
+        <div class="modal-box">
+          <h2>退出登录</h2>
+          <p>确定要退出登录吗？</p>
+          <div class="modal-footer">
+            <button class="btn btn-outline" id="logout-cancel">取消</button>
+            <button class="btn btn-primary" id="logout-confirm">确认</button>
+          </div>
+        </div>
+      </div>
 
       <div id="toast" class="toast"></div>
     </main>

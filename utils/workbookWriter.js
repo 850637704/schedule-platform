@@ -327,11 +327,46 @@ async function getSwapRecords(templatePath) {
   return records;
 }
 
+/**
+ * 删除"7调课记录"工作表中最后一条记录（用于撤销调课）
+ * @param {string} templatePath - 工作簿文件路径
+ */
+async function removeLastSwapRecord(templatePath) {
+  if (!fs.existsSync(templatePath)) return;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(templatePath);
+
+  const sheetName = wb.worksheets.map(ws => ws.name).find(n => /调课记录/.test(n));
+  if (!sheetName) return;
+  const rSheet = wb.getWorksheet(sheetName);
+
+  // 查找最后一行有数据的行（表头占2行，从第3行开始）
+  let lastDataRow = -1;
+  const totalRows = rSheet.rowCount;
+  for (let r = 3; r <= totalRows; r++) {
+    const seqVal = rSheet.getRow(r).getCell(1).value;
+    if (seqVal != null && seqVal !== '') {
+      lastDataRow = r;
+    }
+  }
+
+  // 删除最后一行记录
+  if (lastDataRow >= 3) {
+    const row = rSheet.getRow(lastDataRow);
+    for (let c = 1; c <= 10; c++) {
+      row.getCell(c).value = null;
+    }
+    row.commit();
+    await wb.xlsx.writeFile(templatePath);
+  }
+}
+
 module.exports = {
   getGradeLevel,
   findCellPosition,
   modifyWorkbookOnSwap,
   appendSwapRecord,
   getSwapRecords,
+  removeLastSwapRecord,
   WEEKDAY_NAMES
 };

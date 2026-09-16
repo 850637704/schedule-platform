@@ -126,6 +126,12 @@ function detectConflicts(entries, meetings, teacherMap, leaves, weekType) {
         }
         if (!subjectTeachers[key]) subjectTeachers[key] = new Set();
         if (val) subjectTeachers[key].add(val);
+        // 同时注册去掉(单周)/(双周)后缀的基础科目名，便于会议匹配
+        const baseKey = key.replace(/[(（].*?[)）]/g, '').trim();
+        if (baseKey && baseKey !== key) {
+          if (!subjectTeachers[baseKey]) subjectTeachers[baseKey] = new Set();
+          if (val) subjectTeachers[baseKey].add(val);
+        }
       }
     }
     for (const meeting of meetings) {

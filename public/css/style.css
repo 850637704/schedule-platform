@@ -79,11 +79,11 @@ body {
 .data-status.active { color: #6ee7b7; background: rgba(110,231,183,0.15); }
 
 /* Content */
-.content { flex: 1; margin-left: 220px; padding: 18px clamp(14px, 1.8vw, 32px); min-height: 100vh; }
+.content { flex: 1; margin-left: 220px; padding: 18px clamp(14px, 1.8vw, 32px); min-height: 100vh; display: flex; flex-direction: column; }
 
 .week-bar {
   margin-bottom: 0;
-  padding: 2px 6px;
+  padding: 0 6px;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -91,19 +91,31 @@ body {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: 14px;
+  height: 36px;
+  box-sizing: border-box;
 }
 .week-bar label { font-weight: 600; }
 .week-bar select {
-  padding: 2px 6px;
+  padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 14px;
   background: #fff;
+  height: 36px;
+  min-width: 80px;
+  max-width: 120px;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23999' d='M5 6L0 0h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
 }
 
 .view { display: none; width: 100%; }
 .view.active { display: block; animation: fadeIn 0.25s; }
+#view-swap.view.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 h1 { font-size: 22px; margin-bottom: 6px; }
@@ -166,8 +178,11 @@ h2 { font-size: 17px; margin-bottom: 14px; }
 
 /* Buttons */
 .btn {
-  display: inline-block;
-  padding: 8px 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 18px;
   border: none;
   border-radius: 6px;
   font-size: 14px;
@@ -176,6 +191,7 @@ h2 { font-size: 17px; margin-bottom: 14px; }
   transition: all 0.15s;
   background: var(--border);
   color: var(--text);
+  white-space: nowrap;
 }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-primary:hover { background: var(--primary-dark); }
@@ -199,12 +215,14 @@ h2 { font-size: 17px; margin-bottom: 14px; }
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  font-size: 13px;
-  padding: 2px 6px;
+  font-size: 14px;
+  padding: 0 6px;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 6px;
   transition: border-color 0.15s, box-shadow 0.15s;
+  height: 36px;
+  box-sizing: border-box;
 }
 .filter-group:focus-within {
   border-color: var(--primary);
@@ -221,13 +239,20 @@ h2 { font-size: 17px; margin-bottom: 14px; }
   border-color: var(--primary);
 }
 .filter-bar select {
-  padding: 6px 10px;
+  padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 14px;
-  min-width: clamp(160px, 20vw, 240px);
+  min-width: 100px;
+  max-width: 140px;
   background: #fff;
-  max-width: 100%;
+  height: 36px;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23999' d='M5 6L0 0h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
 }
 
 /* Schedule grid - 自适应 + 表头/首列固定 */
@@ -312,17 +337,45 @@ h2 { font-size: 17px; margin-bottom: 14px; }
 /* 冲突单元格：教师在同一节课教多个班级 */
 .schedule-grid .cell-conflict {
   background: #fdecea;
-  border: 2px solid var(--danger);
-  padding: clamp(2px, 0.5vw, 6px) clamp(2px, 0.4vw, 5px);
+  padding: 0;
+  position: relative;
 }
 .schedule-grid .cell-conflict .cell-class {
   color: var(--danger);
   font-weight: 600;
 }
+/* 重课单元格左右对半分割 */
+.schedule-grid .cell-split {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+.schedule-grid .cell-half {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(2px, 0.5vw, 6px) clamp(1px, 0.3vw, 3px);
+  min-width: 0;
+  overflow: hidden;
+}
+.schedule-grid .cell-half:first-child {
+  border-right: 1px dashed rgba(0,0,0,0.15);
+}
+/* 调课模式下，每半独立可选高亮 */
+.schedule-grid .cell-half.cell-half-selected {
+  background: #f5a3a3;
+}
+.schedule-grid .cell-half.cell-half-able {
+  background: #a3c9f5;
+}
+.schedule-grid .cell-half.cell-half-target {
+  background: #7ed67e;
+}
 /* 会议冲突高亮（橙色，与重课冲突的红色区分） */
 .schedule-grid .cell-meeting-conflict {
   background: #fef5e7;
-  border: 2px solid var(--warning);
   padding: clamp(2px, 0.5vw, 6px) clamp(2px, 0.4vw, 5px);
 }
 .schedule-grid .cell-meeting-conflict .cell-subject,
@@ -333,7 +386,6 @@ h2 { font-size: 17px; margin-bottom: 14px; }
 /* 调休冲突高亮（紫色，与重课冲突红色、会议冲突橙色区分） */
 .schedule-grid .cell-leave-conflict {
   background: #f4ecff;
-  border: 2px solid #8e44ad;
   padding: clamp(2px, 0.5vw, 6px) clamp(2px, 0.4vw, 5px);
 }
 .schedule-grid .cell-leave-conflict .cell-subject,
@@ -563,8 +615,7 @@ table.data-table tr:hover td { background: var(--primary-light); }
 /* 单元格悬停高亮：班级课表、教师课表
    排除：表头th（周一~周天）、首列节次（节次~晚4）、空单元格 */
 .schedule-grid td:hover:not(.cell-empty):not(:first-child) {
-  background: #fff4a1 !important;
-  box-shadow: inset 0 0 0 2px var(--primary);
+  background: #cde2f5 !important;
   cursor: default;
 }
 /* 调课模式下禁用 hover 高亮 */
@@ -577,8 +628,7 @@ table.data-table tr:hover td { background: var(--primary-light); }
 /* 任课教师表悬停高亮：仅教师名行（tc-td-tea）生效
    排除：科目行（班主任/语文等）、占位列、空单元格 */
 .teacher-config-table .tc-td-tea:hover {
-  background: #fff4a1 !important;
-  box-shadow: inset 0 0 0 2px var(--primary);
+  background: #cde2f5 !important;
   cursor: default;
 }
 
@@ -588,7 +638,7 @@ table.data-table tr:hover td { background: var(--primary-light); }
   position: relative;
   display: inline-flex;
   flex-direction: column;
-  width: clamp(110px, 14vw, 180px);
+  width: clamp(100px, 12vw, 150px);
   vertical-align: middle;
 }
 .combobox-input-wrap {
@@ -601,6 +651,7 @@ table.data-table tr:hover td { background: var(--primary-light); }
   background: #fff;
   overflow: hidden;
   transition: border-color 0.15s, box-shadow 0.15s;
+  height: 36px;
 }
 .combobox-input-wrap:focus-within {
   border-color: var(--primary);
@@ -698,29 +749,44 @@ table.data-table tr:hover td { background: var(--primary-light); }
 
 /* ====== 课表调整面板 ====== */
 .swap-mode-select, .swap-class-select {
-  padding: 6px 10px;
+  padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 14px;
   background: #fff;
-  min-width: 120px;
+  min-width: 100px;
+  max-width: 140px;
+  height: 36px;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23999' d='M5 6L0 0h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
 }
 
 /* 调课内容布局：主区域 + 右侧参考 */
 .swap-content {
   display: flex;
   gap: 10px;
-  align-items: flex-start;
+  align-items: stretch;
   margin-top: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .swap-main {
   flex: 1 1 50%;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .swap-main h3 {
   font-size: 14px;
   margin-bottom: 6px;
   color: var(--primary-dark);
+  flex-shrink: 0;
 }
 .swap-side {
   flex: 1 1 50%;
@@ -744,23 +810,28 @@ table.data-table tr:hover td { background: var(--primary-light); }
 /* 主调课网格：压缩行高和内边距 */
 .swap-grid-wrap {
   max-height: none !important;
-  overflow: visible !important;
+  overflow: hidden !important;
+  --row-h: 32px;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  background: var(--card-bg);
+  flex-shrink: 0;
 }
 .swap-grid-wrap .schedule-grid th {
-  height: 30px;
-  padding: 2px 4px;
-  font-size: 12px;
+  height: 30px !important;
+  padding: 2px 4px !important;
+  font-size: 12px !important;
 }
 .swap-grid-wrap .schedule-grid td {
-  height: 32px;
-  padding: 2px 3px;
+  height: 32px !important;
+  padding: 2px 3px !important;
 }
 .swap-grid-wrap .schedule-grid .cell-subject {
-  font-size: 12px;
+  font-size: 12px !important;
 }
 .swap-grid-wrap .schedule-grid .cell-teacher,
 .swap-grid-wrap .schedule-grid .cell-class {
-  font-size: 10px;
+  font-size: 10px !important;
 }
 
 /* 参考课表：更紧凑 */
@@ -787,11 +858,13 @@ table.data-table tr:hover td { background: var(--primary-light); }
   align-items: center;
   gap: 18px;
   flex-wrap: wrap;
-  padding: 10px 14px;
+  padding: 6px 14px;
   background: #f8f9fa;
   border-radius: 8px;
-  margin-top: 14px;
+  margin-top: auto;
   font-size: 13px;
+  line-height: 1.4;
+  flex-shrink: 0;
 }
 .legend-item {
   display: inline-flex;
@@ -806,44 +879,50 @@ table.data-table tr:hover td { background: var(--primary-light); }
   border-radius: 4px;
   border: 1px solid var(--border);
 }
-.legend-selected { background: #e74c3c; }
-.legend-swappable { background: #3498db; }
-.legend-target { background: #27ae60; }
+.legend-selected { background: #f5a3a3; }
+.legend-swappable { background: #a3c9f5; }
+.legend-target { background: #7ed67e; }
 .legend-hint {
   color: var(--text-light);
   font-size: 12px;
   margin-left: auto;
   max-width: 600px;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 /* 调课记录列表 */
 .swap-records-section {
-  margin-top: 18px;
-  padding: 14px 18px;
+  margin-top: 8px;
+  padding: 6px 14px;
   background: #f8f9fa;
   border-radius: 8px;
   border: 1px solid var(--border);
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .swap-records-section h3 {
-  margin: 0 0 10px 0;
+  margin: 0 0 6px 0;
   font-size: 15px;
   color: var(--text);
+  flex-shrink: 0;
 }
 .swap-records-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-height: 300px;
+  gap: 4px;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
 }
 .swap-record-item {
-  padding: 6px 10px;
+  padding: 4px 10px;
   background: #fff;
   border-radius: 4px;
   border: 1px solid #e8e8e8;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.5;
   color: var(--text);
 }
 .swap-record-empty {
@@ -863,47 +942,53 @@ table.data-table tr:hover td { background: var(--primary-light); }
 /* 当前教师课程高亮（班级课表模式中标记当前调课教师的课） */
 .swap-grid-wrap .schedule-grid td.cell-own-teacher {
   background: #fff3cd !important;
-  border-left: 3px solid #ffc107;
 }
 .swap-grid-wrap .schedule-grid td.cell-own-teacher .cell-subject,
 .swap-grid-wrap .schedule-grid td.cell-own-teacher .cell-teacher {
   color: #856404;
 }
-/* 选中状态（红色） */
+/* 选中状态（浅红） */
 .swap-grid-wrap .schedule-grid td.cell-swap-selected {
-  background: #e74c3c !important;
-  border: 2px solid #c0392b;
+  background: #f5a3a3 !important;
 }
 .swap-grid-wrap .schedule-grid td.cell-swap-selected .cell-subject,
 .swap-grid-wrap .schedule-grid td.cell-swap-selected .cell-teacher,
 .swap-grid-wrap .schedule-grid td.cell-swap-selected .cell-class {
-  color: #fff;
+  color: #333;
 }
-/* 可对调状态（蓝色） */
+/* 可对调状态（浅蓝） */
 .swap-grid-wrap .schedule-grid td.cell-swap-able {
-  background: #3498db !important;
-  border: 2px solid #2980b9;
+  background: #a3c9f5 !important;
   cursor: pointer;
 }
 .swap-grid-wrap .schedule-grid td.cell-swap-able .cell-subject,
 .swap-grid-wrap .schedule-grid td.cell-swap-able .cell-teacher,
 .swap-grid-wrap .schedule-grid td.cell-swap-able .cell-class {
-  color: #fff;
+  color: #333;
 }
-/* 目标选中状态（绿色） */
+/* 目标选中状态（浅绿） */
 .swap-grid-wrap .schedule-grid td.cell-swap-target {
-  background: #27ae60 !important;
-  border: 2px solid #1e8449;
+  background: #7ed67e !important;
 }
 .swap-grid-wrap .schedule-grid td.cell-swap-target .cell-subject,
 .swap-grid-wrap .schedule-grid td.cell-swap-target .cell-teacher,
 .swap-grid-wrap .schedule-grid td.cell-swap-target .cell-class {
-  color: #fff;
+  color: #333;
 }
 /* 禁选状态 */
 .swap-grid-wrap .schedule-grid td.cell-swap-disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+/* 辅助课表同步高亮（与主课表同色） */
+.swap-ref-grid .schedule-grid td.cell-swap-selected {
+  background: #f5a3a3 !important;
+}
+.swap-ref-grid .schedule-grid td.cell-swap-able {
+  background: #a3c9f5 !important;
+}
+.swap-ref-grid .schedule-grid td.cell-swap-target {
+  background: #7ed67e !important;
 }
 /* 禁选原因提示 */
 .swap-reject-tooltip {
@@ -918,4 +1003,119 @@ table.data-table tr:hover td { background: var(--primary-light); }
   box-shadow: 0 4px 12px rgba(0,0,0,0.2);
   pointer-events: none;
   display: none;
+}
+
+/* ===== 上传区域头部（登录按钮） ===== */
+.upload-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.upload-header h1 { margin: 0; }
+.login-btn {
+  font-size: 14px;
+  padding: 6px 18px;
+}
+
+/* ===== 弹窗 ===== */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 28px 32px;
+  min-width: 360px;
+  max-width: 440px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+.modal-box h2 {
+  margin: 0 0 16px 0;
+  font-size: 20px;
+}
+.modal-box p {
+  color: #666;
+  margin: 0 0 20px 0;
+}
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.input {
+  padding: 8px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  font-size: 14px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.input:focus {
+  border-color: var(--primary, #4472C4);
+}
+
+/* ===== 账号管理 ===== */
+.accounts-section {
+  margin-bottom: 32px;
+}
+.accounts-section h2 {
+  font-size: 16px;
+  margin: 0 0 12px 0;
+}
+.account-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.account-actions .input {
+  width: auto;
+  min-width: 160px;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.data-table th, .data-table td {
+  padding: 8px 12px;
+  border: 1px solid #e0e0e0;
+  text-align: left;
+}
+.data-table th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+.btn-sm {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.btn-danger {
+  background: #e74c3c;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.btn-danger:hover {
+  background: #c0392b;
+}
+.text-muted {
+  color: #aaa;
+  font-size: 12px;
 }

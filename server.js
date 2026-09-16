@@ -1,4 +1,5 @@
 const express = require('express');
+const session = require('express-session');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -15,8 +16,11 @@ const {
   computeSwapCandidates, executeSwap, getTeacherEntries, getPeriodLabels
 } = require('./utils/swap');
 const {
-  modifyWorkbookOnSwap, appendSwapRecord, getSwapRecords, getGradeLevel, WEEKDAY_NAMES: WB_WEEKDAY_NAMES
+  modifyWorkbookOnSwap, appendSwapRecord, getSwapRecords, removeLastSwapRecord, getGradeLevel, WEEKDAY_NAMES: WB_WEEKDAY_NAMES
 } = require('./utils/workbookWriter');
+const userStore = require('./utils/userStore');
+const scheduleStore = require('./utils/scheduleStore');
+const { requireLogin, requireSuperAdmin, getCurrentUser, getScheduleUserId } = require('./utils/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,7 +29,17 @@ const UPLOAD_DIR = path.join(__dirname, 'uploads');
 const DATA_DIR = path.join(__dirname, 'data');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(DATA_DIR, { recursive: true });
-const DATA_FILE = path.join(DATA_DIR, 'schedule.json');
+
+// 初始化用户数据（首次启动创建默认超管账号）
+userStore.initUsers();
+
+// Session 配置
+app.use(session({
+  secret: 'schedule-platform-secret-key-2026',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 2 * 60 * 60 * 1000 }  // 2小时过期
+}));
 
 app.use(express.json());
 // 开发期间禁用静态文件缓存，确保每次都加载最新版本
@@ -36,6 +50,11 @@ app.use((req, res, next) => {
   next();
 });
 // 静态资源不缓存，确保前端修改后刷新即可生效
+// 处理预览环境注入的 Vite HMR 客户端请求，避免返回 HTML 导致 JS 解析错误
+app.get('/@vite/client', (req, res) => {
+  res.type('application/javascript').send('');
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
@@ -50,31 +69,48 @@ function setDownloadHeader(res, filename) {
   res.setHeader('Content-Disposition', `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`);
 }
 
+// 修复 multer/busboy 对中文文件名的 latin1 解码问题
+function fixFilename(name) {
+  if (!name) return name;
+  // multer 默认按 latin1 解码，需转回 UTF-8
+  try {
+    const decoded = Buffer.from(name, 'latin1').toString('utf8');
+    // 若解码后含替换字符，说明原编码不是 UTF-8，尝试 GBK
+    if (decoded.includes('\uFFFD')) {
+      const iconv = require('iconv-lite');
+      const gbkDecoded = iconv.decode(Buffer.from(name, 'latin1'), 'gbk');
+      if (!gbkDecoded.includes('\uFFFD')) return gbkDecoded;
+    }
+    return decoded;
+  } catch (e) {
+    return name;
+  }
+}
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: UPLOAD_DIR,
     filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname);
+      const ext = path.extname(fixFilename(file.originalname));
       cb(null, `upload_${Date.now()}${ext}`);
     }
   }),
   fileFilter: (req, file, cb) => {
-    if (/xlsx|xls|csv/.test(path.extname(file.originalname).toLowerCase())) cb(null, true);
+    const name = fixFilename(file.originalname);
+    if (/xlsx|xls|csv/.test(path.extname(name).toLowerCase())) cb(null, true);
     else cb(new Error('仅支持 .xlsx / .xls / .csv 文件'));
   },
   limits: { fileSize: 20 * 1024 * 1024 }
 });
 
-// 读取/保存课表数据
-function loadData() {
-  try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
-  } catch {
-    return null;
-  }
+// 读取/保存课表数据（按用户隔离）
+function loadData(req) {
+  const userId = getScheduleUserId(req);
+  return scheduleStore.loadSchedule(userId);
 }
-function saveData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+function saveScheduleData(req, data) {
+  const userId = getScheduleUserId(req);
+  scheduleStore.saveSchedule(userId, data);
 }
 
 // 按周次过滤课表数据，返回该周的条目与所用周次
@@ -86,12 +122,111 @@ function filterByWeek(data, week) {
   return { entries, week: w, weeks };
 }
 
-// ============ API ============
+// ============ 认证 API ============
 
-// 上传并解析总课表
-const TEMPLATE_FILE = path.join(UPLOAD_DIR, 'template.xlsx');
+// 登录
+app.post('/api/login', (req, res) => {
+  const { account, password } = req.body;
+  if (!account || !password) return res.status(400).json({ error: '请输入账号和密码' });
+  const user = userStore.verifyUser(account, password);
+  if (!user) return res.status(401).json({ error: '账号或密码错误' });
+  req.session.user = user;
+  res.json({ ok: true, user: { type: user.type, account: user.account } });
+});
 
-app.post('/api/upload', upload.single('file'), (req, res) => {
+// 退出登录
+app.post('/api/logout', (req, res) => {
+  req.session.destroy();
+  res.json({ ok: true });
+});
+
+// 获取当前登录状态
+app.get('/api/me', (req, res) => {
+  const user = getCurrentUser(req);
+  if (user) {
+    res.json({ loggedIn: true, type: user.type, account: user.account });
+  } else {
+    res.json({ loggedIn: false });
+  }
+});
+
+// ============ 账号管理 API（仅超管） ============
+
+// 获取管理员列表
+app.get('/api/admin/accounts', requireSuperAdmin, (req, res) => {
+  res.json({ accounts: userStore.getAdminList() });
+});
+
+// 添加管理员
+app.post('/api/admin/accounts', requireSuperAdmin, (req, res) => {
+  const { account, password } = req.body;
+  if (!account || !password) return res.status(400).json({ error: '请输入账号和密码' });
+  const result = userStore.addAdmin(account, password);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json({ ok: true, id: result.id });
+});
+
+// 删除管理员（同时删除课表数据）
+app.delete('/api/admin/accounts/:id', requireSuperAdmin, (req, res) => {
+  const { id } = req.params;
+  const result = userStore.removeAdmin(id);
+  if (result.error) return res.status(400).json({ error: result.error });
+  // 删除该管理员的课表数据
+  scheduleStore.deleteSchedule(id);
+  res.json({ ok: true });
+});
+
+// 重置管理员密码
+app.put('/api/admin/accounts/:id/password', requireSuperAdmin, (req, res) => {
+  const { id } = req.params;
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: '请输入新密码' });
+  const result = userStore.resetAdminPassword(id, password);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json({ ok: true });
+});
+
+// 超管密码管理
+app.get('/api/super/passwords', requireSuperAdmin, (req, res) => {
+  res.json({ passwords: userStore.getSuperAdminPasswords() });
+});
+
+app.post('/api/super/passwords', requireSuperAdmin, (req, res) => {
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: '请输入密码' });
+  const result = userStore.addSuperAdminPassword(password);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json({ ok: true });
+});
+
+app.delete('/api/super/passwords/:hash', requireSuperAdmin, (req, res) => {
+  const { hash } = req.params;
+  const result = userStore.removeSuperAdminPassword(hash);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json({ ok: true });
+});
+
+// 隐藏接口：通过安全问题重置超管密码
+app.post('/api/reset-super', (req, res) => {
+  const { answer } = req.body;
+  if (!answer) return res.status(400).json({ error: '请回答安全问题' });
+  if (!userStore.verifySecurityAnswer(answer)) {
+    return res.status(401).json({ error: '安全答案错误' });
+  }
+  userStore.resetSuperAdmin();
+  res.json({ ok: true, message: '超管密码已重置为 990322' });
+});
+
+// 获取安全问题（未登录可访问）
+app.get('/api/security-question', (req, res) => {
+  const q = userStore.getSecurityQuestion();
+  res.json({ question: q || '未设置安全问题' });
+});
+
+// ============ 课表 API ============
+
+// 上传并解析总课表（需登录）
+app.post('/api/upload', requireLogin, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '请上传文件' });
   try {
     const { entries, sheets, weeks, teacherMap, meetings, leaves, swapRecords } = parseWorkbook(req.file.path);
@@ -101,7 +236,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
     const stats = getStats(entries);
     const data = {
       uploadedAt: new Date().toISOString(),
-      filename: req.file.originalname,
+      filename: fixFilename(req.file.originalname),
       sheets,
       entries,
       stats,
@@ -111,9 +246,10 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
       leaves: leaves || [],
       swapRecords: swapRecords || []
     };
-    saveData(data);
+    saveScheduleData(req, data);
     // 保存上传的文件作为模板（覆盖旧的）
-    fs.copyFileSync(req.file.path, TEMPLATE_FILE);
+    const templatePath = scheduleStore.getTemplatePath(getScheduleUserId(req));
+    fs.copyFileSync(req.file.path, templatePath);
     res.json({ ok: true, ...stats, sheets, weeks: data.weeks, meetings: data.meetings || [], leaves: data.leaves || [], swapRecords: data.swapRecords });
   } catch (err) {
     res.status(500).json({ error: '解析失败：' + err.message });
@@ -125,23 +261,38 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
 
 // 获取可用周次
 app.get('/api/weeks', (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.json({ weeks: [] });
   res.json({ weeks: data.weeks || ['通用'] });
 });
 
 // 获取概览信息（按周次过滤）
 app.get('/api/overview', (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.json({ hasData: false, weeks: [] });
   const { entries, week, weeks } = filterByWeek(data, req.query.week);
-  const stats = getStats(entries);
-  res.json({ hasData: true, ...stats, uploadedAt: data.uploadedAt, filename: data.filename, weeks, week });
+  // totalEntries 按周次统计，teacherCount/subjectCount/classCount 基于全量统计
+  const weekStats = getStats(entries);
+  const allStats = getStats(data.entries);
+  res.json({
+    hasData: true,
+    totalEntries: weekStats.totalEntries,
+    classCount: allStats.classCount,
+    teacherCount: allStats.teacherCount,
+    subjectCount: allStats.subjectCount,
+    classes: allStats.classes,
+    teachers: allStats.teachers,
+    subjects: allStats.subjects,
+    uploadedAt: data.uploadedAt,
+    filename: data.filename,
+    weeks,
+    week
+  });
 });
 
 // 获取所有班级列表
 app.get('/api/classes', (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据，请先上传' });
   const { entries } = filterByWeek(data, req.query.week);
   // 班级列表：从课表条目 + 教师安排表中合并，确保无课表但有教师安排的班级也显示
@@ -161,7 +312,7 @@ app.get('/api/classes', (req, res) => {
 
 // 获取所有教师列表
 app.get('/api/teachers', (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据，请先上传' });
   // 教师列表不按周次过滤，展示所有教师（合并课表条目 + 教师安排表中的教师）
   const teacherSet = new Set(getStats(data.entries).teachers);
@@ -178,7 +329,7 @@ app.get('/api/teachers', (req, res) => {
 
 // 获取班级课表（含教师配置表）
 app.get('/api/class/:className', (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   const className = decodeURIComponent(req.params.className);
   const { entries } = filterByWeek(data, req.query.week);
@@ -198,7 +349,7 @@ app.get('/api/class/:className', (req, res) => {
 
 // 获取教师课表
 app.get('/api/teacher/:teacherName', (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   const teacherName = decodeURIComponent(req.params.teacherName);
   const { entries } = filterByWeek(data, req.query.week);
@@ -223,6 +374,12 @@ app.get('/api/teacher/:teacherName', (req, res) => {
       }
       if (!subjectTeachers[key]) subjectTeachers[key] = new Set();
       if (val) subjectTeachers[key].add(val);
+      // 同时注册去掉(单周)/(双周)后缀的基础科目名，便于会议匹配
+      const baseKey = key.replace(/[(（].*?[)）]/g, '').trim();
+      if (baseKey && baseKey !== key) {
+        if (!subjectTeachers[baseKey]) subjectTeachers[baseKey] = new Set();
+        if (val) subjectTeachers[baseKey].add(val);
+      }
     }
   }
   // 找到该教师参与的会议
@@ -345,7 +502,7 @@ app.get('/api/teacher/:teacherName', (req, res) => {
 
 // 教师课时统计
 app.get('/api/statistics/teachers', (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   const { entries } = filterByWeek(data, req.query.week);
   const stats = teacherStatistics(entries);
@@ -354,7 +511,7 @@ app.get('/api/statistics/teachers', (req, res) => {
 
 // 班级课时统计
 app.get('/api/statistics/classes', (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   const { entries } = filterByWeek(data, req.query.week);
   const stats = classStatistics(entries);
@@ -363,7 +520,7 @@ app.get('/api/statistics/classes', (req, res) => {
 
 // 课表冲突分析
 app.get('/api/analysis', (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   // 冲突分析同时检测单周和双周，不过滤周次
   const result = analyzeConflicts(data.entries || [], data.meetings || [], data.teacherMap || {}, data.leaves || []);
@@ -372,7 +529,7 @@ app.get('/api/analysis', (req, res) => {
 
 // 导出所有班级课表
 app.get('/api/export/classes', async (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   try {
     const { entries, week } = filterByWeek(data, req.query.week);
@@ -387,7 +544,7 @@ app.get('/api/export/classes', async (req, res) => {
 
 // 导出所有教师课表
 app.get('/api/export/teachers', async (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   try {
     const { entries, week } = filterByWeek(data, req.query.week);
@@ -402,7 +559,7 @@ app.get('/api/export/teachers', async (req, res) => {
 
 // 导出单个班级课表
 app.get('/api/export/class/:className', async (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   try {
     const className = decodeURIComponent(req.params.className);
@@ -418,7 +575,7 @@ app.get('/api/export/class/:className', async (req, res) => {
 
 // 导出单个教师课表
 app.get('/api/export/teacher/:teacherName', async (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   try {
     const teacherName = decodeURIComponent(req.params.teacherName);
@@ -434,7 +591,7 @@ app.get('/api/export/teacher/:teacherName', async (req, res) => {
 
 // 导出教师课时统计
 app.get('/api/export/teacher-stats', async (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   try {
     const { entries, week } = filterByWeek(data, req.query.week);
@@ -454,7 +611,7 @@ app.get('/api/export/teacher-stats', async (req, res) => {
 
 // 导出班级课时统计
 app.get('/api/export/class-stats', async (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   try {
     const { entries, week } = filterByWeek(data, req.query.week);
@@ -475,10 +632,11 @@ app.get('/api/export/class-stats', async (req, res) => {
 // 下载模板：优先使用最近上传的课表文件，没有则生成默认模板
 app.get('/api/template', async (req, res) => {
   try {
-    // 优先返回上次上传的课表文件
-    if (fs.existsSync(TEMPLATE_FILE)) {
+    // 获取对应用户的模板文件
+    const templatePath = scheduleStore.getTemplatePath(getScheduleUserId(req));
+    if (fs.existsSync(templatePath)) {
       setDownloadHeader(res, '课表模板.xlsx');
-      return res.sendFile(TEMPLATE_FILE);
+      return res.sendFile(templatePath);
     }
     // 没有上传过则生成默认模板（匹配真实课表模版格式）
     const wb = new ExcelJS.Workbook();
@@ -664,7 +822,7 @@ app.get('/api/template', async (req, res) => {
 
 // 获取可对调候选课程
 app.get('/api/swap/candidates', (req, res) => {
-  const data = loadData();
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   const { className, weekday, period, week } = req.query;
   if (!className || !weekday || !period) return res.status(400).json({ error: '缺少参数' });
@@ -677,9 +835,9 @@ app.get('/api/swap/candidates', (req, res) => {
   res.json(result);
 });
 
-// 执行对调
-app.post('/api/swap/execute', async (req, res) => {
-  const data = loadData();
+// 执行对调（需登录）
+app.post('/api/swap/execute', requireLogin, async (req, res) => {
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   const { source, target, week } = req.body;
   if (!source || !target) return res.status(400).json({ error: '缺少源课程或目标课程' });
@@ -687,7 +845,9 @@ app.post('/api/swap/execute', async (req, res) => {
   // 备份当前 entries（用于撤销）
   data._lastBackup = {
     weekType,
-    entries: JSON.parse(JSON.stringify(data.entries))
+    entries: JSON.parse(JSON.stringify(data.entries)),
+    source: { ...source },
+    target: { ...target }
   };
   try {
     executeSwap(data.entries, source, target, weekType, data.meetings, data.teacherMap);
@@ -701,11 +861,11 @@ app.post('/api/swap/execute', async (req, res) => {
         // 在对周工作表中，同一班级同一时段也需要交换
         const otherSource = { ...source };
         const otherTarget = { ...target };
-        executeSwap(data.entries, otherSource, otherTarget, otherWeekType, data.meetings, data.teacherMap);
+        executeSwap(data.entries, otherSource, otherTarget, otherWeekType, data.meetings, data.teacherMap, true);
       }
     }
 
-    saveData(data);
+    saveScheduleData(req, data);
 
     // 同步修改 Excel 工作簿并追加调课记录
     const now = new Date();
@@ -726,10 +886,11 @@ app.post('/api/swap/execute', async (req, res) => {
       changeDate: timestamp
     };
     // 修改 Excel 工作簿中的课程单元格
-    if (fs.existsSync(TEMPLATE_FILE)) {
+    const templatePath = scheduleStore.getTemplatePath(getScheduleUserId(req));
+    if (fs.existsSync(templatePath)) {
       try {
-        await modifyWorkbookOnSwap(TEMPLATE_FILE, source, target, weekType);
-        await appendSwapRecord(TEMPLATE_FILE, record);
+        await modifyWorkbookOnSwap(templatePath, source, target, weekType);
+        await appendSwapRecord(templatePath, record);
       } catch (e) {
         console.error('修改工作簿失败（不影响调课结果）:', e.message);
       }
@@ -757,16 +918,39 @@ app.post('/api/swap/execute', async (req, res) => {
   }
 });
 
-// 撤销对调
-app.post('/api/swap/undo', (req, res) => {
-  const data = loadData();
+// 撤销对调（需登录）
+app.post('/api/swap/undo', requireLogin, async (req, res) => {
+  const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
   if (!data._lastBackup) return res.status(400).json({ error: '无可撤销的操作' });
   const weekType = req.body.week || data._lastBackup.weekType;
+  const backup = data._lastBackup;
   // 恢复备份数据
-  data.entries = data._lastBackup.entries;
+  data.entries = backup.entries;
   delete data._lastBackup;
-  saveData(data);
+  saveScheduleData(req, data);
+
+  // 恢复 Excel 工作簿：再交换一次 source/target 恢复原始单元格值，并删除最后一条调课记录
+  const templatePath = scheduleStore.getTemplatePath(getScheduleUserId(req));
+  if (fs.existsSync(templatePath) && backup.source && backup.target) {
+    try {
+      // 再交换一次恢复 Excel 单元格（modifyWorkbookOnSwap 是对称操作）
+      await modifyWorkbookOnSwap(templatePath, backup.source, backup.target, weekType);
+      // 高一/高二：对周也需要恢复
+      const grade = getGradeLevel(backup.source.class);
+      if (grade !== 3 && weekType !== '通用' && data.weeks && data.weeks.length > 1) {
+        const otherWeekType = weekType === '单周' ? '双周' : '单周';
+        if (data.weeks.includes(otherWeekType)) {
+          await modifyWorkbookOnSwap(templatePath, backup.source, backup.target, otherWeekType);
+        }
+      }
+      // 删除最后一条调课记录
+      await removeLastSwapRecord(templatePath);
+    } catch (e) {
+      console.error('恢复工作簿失败（不影响撤销结果）:', e.message);
+    }
+  }
+
   const { entries } = filterByWeek(data, weekType);
   const periodLabels = getPeriodLabels(entries);
   res.json({ ok: true, canUndo: false, entries, periodLabels });
@@ -775,17 +959,19 @@ app.post('/api/swap/undo', (req, res) => {
 // 获取调课记录
 app.get('/api/swap/records', async (req, res) => {
   try {
-    const records = await getSwapRecords(TEMPLATE_FILE);
+    const templatePath = scheduleStore.getTemplatePath(getScheduleUserId(req));
+    const records = await getSwapRecords(templatePath);
     res.json({ records });
   } catch (err) {
     res.status(500).json({ error: '读取调课记录失败：' + err.message });
   }
 });
 
-// 删除当前课表数据
-app.delete('/api/data', (req, res) => {
+// 删除当前课表数据（需登录）
+app.delete('/api/data', requireLogin, (req, res) => {
   try {
-    fs.unlinkSync(DATA_FILE);
+    const userId = getScheduleUserId(req);
+    scheduleStore.deleteSchedule(userId);
     res.json({ ok: true });
   } catch {
     res.json({ ok: true });

@@ -3,6 +3,7 @@ const WEEKDAYS = ['', '周一', '周二', '周三', '周四', '周五', '周六'
 let currentWeek = null;     // 当前周次（单周/双周/通用）
 let weeksList = [];         // 可用周次列表
 let activeView = 'upload';  // 当前激活的视图
+let currentUser = null;     // 当前登录用户 { type: 'super'|'admin', account } 或 null
 let lastClassSel = '';      // 上次选中的班级
 let lastTeacherSel = '';    // 上次选中的教师
 let activeStatsTab = 'teacher-stats'; // 课时统计当前 tab
@@ -36,7 +37,12 @@ function toast(msg, type = '') {
 async function api(url, opts = {}) {
   const res = await fetch(url, opts);
   if (res.headers.get('content-type')?.includes('application/json')) {
-    return res.json();
+    const data = await res.json();
+    if (res.status === 401 && data.needLogin) {
+      toast('无权限，请先登录', 'error');
+      showLoginModal();
+    }
+    return data;
   }
   return res;
 }
@@ -80,6 +86,7 @@ function loadView(view) {
     case 'swap': loadSwapView(); break;
     case 'stats': loadStats(); break;
     case 'analysis': break;
+    case 'accounts': loadAccountsView(); break;
   }
 }
 
@@ -141,6 +148,7 @@ fileInput.addEventListener('change', () => {
 });
 
 async function uploadFile(file) {
+  if (!requireAuth('upload')) return;
   const result = $('#upload-result');
   result.innerHTML = '<div class="alert alert-success">正在上传并解析...</div>';
   const formData = new FormData();
@@ -461,31 +469,46 @@ function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts,
           const k = `${e.class}|${e.subject}`;
           if (!seen.has(k)) { seen.add(k); unique.push(e); }
         }
-        // 教师模式下：同一节课不同班级 = 冲突，合并显示
+        // 教师模式下：同一节课不同班级 = 冲突，左右对半分割显示
         const classSet = new Set(unique.map(e => e.class || '').filter(Boolean));
         const isConflict = (mode === 'teacher' && classSet.size > 1);
-        let cell = `<div class="cell-subject">${escapeHtml(unique[0].subject || '')}</div>`;
-        if (mode === 'class' && unique[0].teacher) cell += `<div class="cell-teacher">${escapeHtml(unique[0].teacher)}</div>`;
-        if (mode === 'teacher') {
-          const classes = [...classSet];
-          if (classes.length) cell += `<div class="cell-class">${escapeHtml(classes.join(' / '))}</div>`;
-        }
-        if (unique[0].location) cell += `<div class="cell-location">@${escapeHtml(unique[0].location)}</div>`;
-        const isMeetingConflict = mode === 'teacher' && meetingConflictKeys.has(`${wd}|${p}`);
-        const isLeaveConflict = mode === 'teacher' && leaveConflictSet.has(`${wd}|${p}`);
         let cellClass = 'cell-has';
         // 冲突严重性：重课(红) > 会议(橙) > 调休(紫)，同一节有多冲突时取严重性最高的颜色
+        const isMeetingConflict = mode === 'teacher' && meetingConflictKeys.has(`${wd}|${p}`);
+        const isLeaveConflict = mode === 'teacher' && leaveConflictSet.has(`${wd}|${p}`);
         if (isConflict) cellClass = 'cell-conflict';
         else if (isMeetingConflict) cellClass = 'cell-meeting-conflict';
         else if (isLeaveConflict) cellClass = 'cell-leave-conflict';
-        html += `<td class="${cellClass}">${cell}</td>`;
+        let cell;
+        if (isConflict) {
+          // 重课：左右对半分割
+          cell = '<div class="cell-split">';
+          for (let i = 0; i < unique.length; i++) {
+            const e = unique[i];
+            cell += `<div class="cell-half">`;
+            cell += `<div class="cell-subject">${escapeHtml(e.subject || '')}</div>`;
+            if (e.class) cell += `<div class="cell-class">${escapeHtml(e.class)}</div>`;
+            if (e.location) cell += `<div class="cell-location">@${escapeHtml(e.location)}</div>`;
+            cell += `</div>`;
+          }
+          cell += '</div>';
+        } else {
+          cell = `<div class="cell-subject">${escapeHtml(unique[0].subject || '')}</div>`;
+          if (mode === 'class' && unique[0].teacher) cell += `<div class="cell-teacher">${escapeHtml(unique[0].teacher)}</div>`;
+          if (mode === 'teacher') {
+            const classes = [...classSet];
+            if (classes.length) cell += `<div class="cell-class">${escapeHtml(classes.join(' / '))}</div>`;
+          }
+          if (unique[0].location) cell += `<div class="cell-location">@${escapeHtml(unique[0].location)}</div>`;
+        }
+        html += `<td class="${cellClass}" data-weekday="${wd}" data-period="${p}">${cell}</td>`;
       } else {
         // 教师模式下，空单元格若有会议，显示水印
         if (mode === 'teacher' && teacherMeetingMap.has(`${wd}|${p}`)) {
           const mName = teacherMeetingMap.get(`${wd}|${p}`);
-          html += `<td class="cell-empty cell-meeting"><span class="meeting-watermark">${escapeHtml(mName)}</span></td>`;
+          html += `<td class="cell-empty cell-meeting" data-weekday="${wd}" data-period="${p}"><span class="meeting-watermark">${escapeHtml(mName)}</span></td>`;
         } else {
-          html += '<td class="cell-empty">—</td>';
+          html += `<td class="cell-empty" data-weekday="${wd}" data-period="${p}">—</td>`;
         }
       }
     }
@@ -762,6 +785,7 @@ function escapeAttr(s) { return escapeHtml(s); }
 // 轻量版：不引入完整 pinyin 库，用 lookup table 解决高频字
 const __PINYIN_MAP = {
   '零':'L','一':'Y','二':'E','三':'S','四':'S','五':'W','六':'L','七':'Q','八':'B','九':'J','十':'S',
+  '庹':'T','肖':'X',
   '高':'G','二':'E','三':'S','四':'S','五':'W','六':'L','七':'Q','八':'B','九':'J',
   '初':'C','班':'B','级':'J','年':'N','小':'X','中':'Z',
   '李':'L','王':'W','张':'Z','刘':'L','陈':'C','杨':'Y','黄':'H','赵':'Z','周':'Z','吴':'W','徐':'X','孙':'S','马':'M','朱':'Z','胡':'H','郭':'G','何':'H','林':'L','罗':'L','郑':'Z','梁':'L','谢':'X','宋':'S','唐':'T','许':'X','韩':'H','冯':'F','邓':'D','曹':'C','彭':'P','曾':'Z','萧':'X','田':'T','董':'D','袁':'Y','潘':'P','于':'Y','蒋':'J','蔡':'C','余':'Y','杜':'D','叶':'Y','程':'C','苏':'S','魏':'W','吕':'L','丁':'D','任':'R','沈':'S','姚':'Y','卢':'L','傅':'F','钟':'Z','姜':'J','崔':'C','谭':'T','廖':'L','范':'F','汪':'W','陆':'L','金':'J','石':'S','戴':'D','贾':'J','韦':'W','夏':'X','邱':'Q','方':'F','侯':'H','邹':'Z','熊':'X','孟':'M','秦':'Q','白':'B','江':'J','阎':'Y','薛':'X','尹':'Y','段':'D','雷':'L','黎':'L','史':'S','龙':'L','贺':'H','顾':'G','毛':'M','郝':'H','龚':'G','邵':'S','万':'W','钱':'Q','严':'Y','覃':'Q','武':'W','戚':'Q','柳':'L','乔':'Q','齐':'Q','毛':'M','邱':'Q','易':'Y','常':'C','乔':'Q','文':'W','安':'A','殷':'Y','颜':'Y','庄':'Z','章':'Z','鲁':'L','倪':'N','庞':'P','邢':'X','俞':'Y','翟':'Z','蓝':'L','聂':'N','蔡':'C','靳':'J','路':'L','关':'G','苗':'M','季':'J','俞':'Y','简':'J','车':'C','项':'X','连':'L','梅':'M','樊':'F','詹':'Z','符':'F','阳':'Y','欧':'O','纪':'J','舒':'S','柯':'K','毕':'B','凌':'L','盛':'S','左':'Z','樊':'F','童':'T','区':'O','霍':'H','翁':'W','游':'Y','卓':'Z','阮':'R','虞':'Y','桂':'G','苟':'G','臧':'Z','闵':'M','喻':'Y','费':'F','蒲':'P','蒲':'P','解':'X','柴':'C','房':'F','姬':'J','薛':'X','秦':'Q','艾':'A','尤':'Y','兰':'L','冷':'L','饶':'R','空':'K','牧':'M','戚':'Q','瞿':'Q','辛':'X','欧':'O','管':'G','戚':'Q','曲':'Q','全':'Q','冉':'R','饶':'R','戎':'R','荣':'R','茹':'R','阮':'R','桑':'S','莎':'S','慎':'S','师':'S','施':'S','石':'S','时':'S','史':'S','舒':'S','双':'S','帅':'S','司':'S','宋':'S','苏':'S','孙':'S','索':'S',
@@ -1019,8 +1043,229 @@ function groupClassesWithAll(list) {
 }
 
 
+// ===== 认证模块 =====
+
+// 检查是否已登录
+async function initAuth() {
+  try {
+    const data = await api('/api/me');
+    if (data.loggedIn) {
+      currentUser = { type: data.type, account: data.account };
+    }
+  } catch {}
+  updateAuthUI();
+}
+
+// 更新登录相关 UI
+function updateAuthUI() {
+  const btn = $('#login-btn');
+  const accountsNav = $('.nav-item[data-view="accounts"]');
+  if (currentUser) {
+    btn.textContent = currentUser.type === 'super' ? '超级管理员' : '管理员';
+    // 仅超管显示账号管理导航
+    if (accountsNav) {
+      accountsNav.style.display = currentUser.type === 'super' ? '' : 'none';
+    }
+  } else {
+    btn.textContent = '登录';
+    if (accountsNav) accountsNav.style.display = 'none';
+  }
+}
+
+// 登录弹窗
+function showLoginModal() {
+  $('#login-modal').style.display = 'flex';
+  $('#login-account').value = '';
+  $('#login-password').value = '';
+  setTimeout(() => $('#login-account').focus(), 100);
+}
+function hideLoginModal() {
+  $('#login-modal').style.display = 'none';
+}
+
+// 登出确认弹窗
+function showLogoutModal() {
+  $('#logout-modal').style.display = 'flex';
+}
+function hideLogoutModal() {
+  $('#logout-modal').style.display = 'none';
+}
+
+// 执行登录
+async function doLogin() {
+  const account = $('#login-account').value.trim();
+  const password = $('#login-password').value.trim();
+  if (!account || !password) { toast('请输入账号和密码', 'error'); return; }
+  try {
+    const data = await api('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account, password })
+    });
+    if (data.error) { toast(data.error, 'error'); return; }
+    currentUser = data.user;
+    hideLoginModal();
+    updateAuthUI();
+    toast('登录成功', 'success');
+    checkData();
+    if (currentUser.type === 'super') loadAccountsView();
+  } catch (err) {
+    toast('登录失败：' + err.message, 'error');
+  }
+}
+
+// 执行登出
+async function doLogout() {
+  try {
+    await api('/api/logout', { method: 'POST' });
+  } catch {}
+  currentUser = null;
+  hideLogoutModal();
+  updateAuthUI();
+  toast('已退出登录', 'success');
+  checkData();
+}
+
+// 绑定登录/登出事件
+$('#login-btn').addEventListener('click', () => {
+  if (currentUser) {
+    showLogoutModal();
+  } else {
+    showLoginModal();
+  }
+});
+$('#login-cancel').addEventListener('click', hideLoginModal);
+$('#login-submit').addEventListener('click', doLogin);
+$('#login-password').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doLogin();
+});
+$('#login-account').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('#login-password').focus();
+});
+$('#logout-cancel').addEventListener('click', hideLogoutModal);
+$('#logout-confirm').addEventListener('click', doLogout);
+
+// 需登录才能执行的操作
+function requireAuth(action) {
+  if (!currentUser) {
+    toast('无权限，请先登录', 'error');
+    showLoginModal();
+    return false;
+  }
+  return true;
+}
+
+// ===== 账号管理视图（仅超管） =====
+async function loadAccountsView() {
+  await loadAdminList();
+  await loadSuperPasswords();
+}
+
+async function loadAdminList() {
+  try {
+    const data = await api('/api/admin/accounts');
+    if (data.error) { toast(data.error, 'error'); return; }
+    const tbody = $('#admin-tbody');
+    if (!data.accounts || !data.accounts.length) {
+      tbody.innerHTML = '<tr><td colspan="3">暂无管理员</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.accounts.map(a => {
+      const time = a.createdAt ? new Date(a.createdAt).toLocaleString('zh-CN') : '-';
+      return `<tr>
+        <td>${escapeHtml(a.account)}</td>
+        <td>${escapeHtml(time)}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="resetAdminPassword('${a.id}','${escapeHtml(a.account)}')">重置密码</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteAdmin('${a.id}','${escapeHtml(a.account)}')">删除</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    toast('加载管理员列表失败', 'error');
+  }
+}
+
+async function loadSuperPasswords() {
+  try {
+    const data = await api('/api/super/passwords');
+    if (data.error) return;
+    const tbody = $('#super-password-tbody');
+    if (!data.passwords || !data.passwords.length) {
+      tbody.innerHTML = '<tr><td colspan="3">暂无密码</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.passwords.map(p => {
+      const short = p.hash.substring(0, 16) + '...';
+      const typeLabel = p.isDefault ? '默认密码（永久有效）' : '自定义';
+      const delBtn = p.isDefault
+        ? '<span class="text-muted">不可删除</span>'
+        : `<button class="btn btn-sm btn-danger" onclick="deleteSuperPassword('${p.hash}')">删除</button>`;
+      return `<tr><td>${short}</td><td>${typeLabel}</td><td>${delBtn}</td></tr>`;
+    }).join('');
+  } catch {}
+}
+
+// 添加管理员
+$('#add-admin-btn')?.addEventListener('click', async () => {
+  const account = $('#new-admin-account').value.trim();
+  const password = $('#new-admin-password').value.trim();
+  if (!account || !password) { toast('请输入账号和密码', 'error'); return; }
+  const data = await api('/api/admin/accounts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account, password })
+  });
+  if (data.error) { toast(data.error, 'error'); return; }
+  toast('管理员添加成功', 'success');
+  $('#new-admin-account').value = '';
+  $('#new-admin-password').value = '';
+  loadAdminList();
+});
+
+// 添加超管密码
+$('#add-super-password-btn')?.addEventListener('click', async () => {
+  const password = $('#new-super-password').value.trim();
+  if (!password) { toast('请输入密码', 'error'); return; }
+  const data = await api('/api/super/passwords', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password })
+  });
+  if (data.error) { toast(data.error, 'error'); return; }
+  toast('密码添加成功', 'success');
+  $('#new-super-password').value = '';
+  loadSuperPasswords();
+});
+
+// 全局函数（onclick 调用）
+window.resetAdminPassword = async function(id, account) {
+  const pwd = prompt(`重置管理员「${account}」的密码为：`);
+  if (!pwd) return;
+  const data = await api(`/api/admin/accounts/${id}/password`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pwd })
+  });
+  if (data.error) { toast(data.error, 'error'); return; }
+  toast('密码重置成功', 'success');
+};
+
+window.deleteAdmin = async function(id, account) {
+  if (!confirm(`确定删除管理员「${account}」？该管理员的课表数据将被一并删除！`)) return;
+  const data = await api(`/api/admin/accounts/${id}`, { method: 'DELETE' });
+  if (data.error) { toast(data.error, 'error'); return; }
+  toast('管理员已删除', 'success');
+  loadAdminList();
+};
+
+window.deleteSuperPassword = async function(hash) {
+  if (!confirm('确定删除此密码？')) return;
+  const data = await api(`/api/super/passwords/${encodeURIComponent(hash)}`, { method: 'DELETE' });
+  if (data.error) { toast(data.error, 'error'); return; }
+  toast('密码已删除', 'success');
+  loadSuperPasswords();
+};
+
 // ===== 初始化 =====
-checkData();
+initAuth().then(() => checkData());
 
 // ===== 课表调整功能 =====
 let rejectTooltip = null;
@@ -1181,21 +1426,39 @@ function renderSwapGrid(entries, mode, globalPeriodLabels, meetingConflicts, tea
         }
         const classSet = new Set(unique.map(e => e.class || '').filter(Boolean));
         const isConflict = (mode === 'teacher' && classSet.size > 1);
-        let cell = `<div class="cell-subject">${escapeHtml(unique[0].subject || '')}</div>`;
-        if (mode === 'class' && unique[0].teacher) cell += `<div class="cell-teacher">${escapeHtml(unique[0].teacher)}</div>`;
-        if (mode === 'teacher') {
-          const classes = [...classSet];
-          if (classes.length) cell += `<div class="cell-class">${escapeHtml(classes.join(' / '))}</div>`;
-        }
-        if (unique[0].location) cell += `<div class="cell-location">@${escapeHtml(unique[0].location)}</div>`;
         const isMeetingConflict = mode === 'teacher' && meetingConflictKeys.has(`${wd}|${p}`);
         let cellClass = 'cell-has';
         if (isConflict) cellClass = 'cell-conflict';
         else if (isMeetingConflict) cellClass = 'cell-meeting-conflict';
         else if (highlightTeacher && unique[0].teacher === highlightTeacher) cellClass = 'cell-own-teacher';
-        // 取第一个条目的信息作为 data 属性
-        const e0 = unique[0];
-        html += `<td class="${cellClass}" data-weekday="${wd}" data-period="${p}" data-class="${escapeAttr(e0.class || '')}" data-teacher="${escapeAttr(e0.teacher || '')}" data-subject="${escapeAttr(e0.subject || '')}">${cell}</td>`;
+        if (isConflict) {
+          // 重课：左右对半分割，每半独立可选
+          html += `<td class="${cellClass}" data-weekday="${wd}" data-period="${p}">`;
+          html += '<div class="cell-split">';
+          for (let i = 0; i < unique.length; i++) {
+            const e = unique[i];
+            html += `<div class="cell-half" data-class="${escapeAttr(e.class || '')}" data-teacher="${escapeAttr(e.teacher || '')}" data-subject="${escapeAttr(e.subject || '')}">`;
+            html += `<div class="cell-subject">${escapeHtml(e.subject || '')}</div>`;
+            if (e.class) html += `<div class="cell-class">${escapeHtml(e.class)}</div>`;
+            if (e.location) html += `<div class="cell-location">@${escapeHtml(e.location)}</div>`;
+            html += `</div>`;
+          }
+          html += '</div></td>';
+        } else {
+          let cell = `<div class="cell-subject">${escapeHtml(unique[0].subject || '')}</div>`;
+          // 调课教师的课（或教师模式下的所有课）→ 显示"科目+班级"
+          // 其他教师的课 → 显示"科目+教师名字"
+          const isHighlight = mode === 'teacher' || (highlightTeacher && unique[0].teacher === highlightTeacher);
+          if (isHighlight) {
+            const classes = [...classSet];
+            if (classes.length) cell += `<div class="cell-class">${escapeHtml(classes.join(' / '))}</div>`;
+          } else {
+            if (unique[0].teacher) cell += `<div class="cell-teacher">${escapeHtml(unique[0].teacher)}</div>`;
+          }
+          if (unique[0].location) cell += `<div class="cell-location">@${escapeHtml(unique[0].location)}</div>`;
+          const e0 = unique[0];
+          html += `<td class="${cellClass}" data-weekday="${wd}" data-period="${p}" data-class="${escapeAttr(e0.class || '')}" data-teacher="${escapeAttr(e0.teacher || '')}" data-subject="${escapeAttr(e0.subject || '')}">${cell}</td>`;
+        }
       } else {
         if (mode === 'teacher' && teacherMeetingMap.has(`${wd}|${p}`)) {
           const mName = teacherMeetingMap.get(`${wd}|${p}`);
@@ -1217,19 +1480,31 @@ $('#swap-grid').addEventListener('click', async (e) => {
   if (!td || !td.dataset.weekday) return;
   const weekday = Number(td.dataset.weekday);
   const period = Number(td.dataset.period);
+  // 检查是否点击了重课的某一半
+  const half = e.target.closest('.cell-half');
   // 1. 无源课程 → 选源（红色）
   if (!swapState.source) {
     if (td.classList.contains('cell-empty')) { toast('空课不可选', 'error'); return; }
-    await selectSource(td, weekday, period);
+    await selectSource(td, weekday, period, half);
   } else {
     // 2. 已有源课程
     if (swapState.source.weekday === weekday && swapState.source.period === period) {
-      resetSwapSelection();
-      // 教师模式下恢复教师课表视图
-      if (swapState.mode === 'teacher' && swapState.teacher) {
-        await onSwapTeacherSelected(swapState.teacher);
+      // 如果是重课单元格，检查是否点击的是同一半
+      if (half && swapState.source.class === (half.dataset.class || '')) {
+        resetSwapSelection();
+        if (swapState.mode === 'teacher' && swapState.teacher) {
+          await onSwapTeacherSelected(swapState.teacher);
+        }
+        return;
       }
-      return;
+      // 非重课或不同半，继续走取消逻辑
+      if (!half) {
+        resetSwapSelection();
+        if (swapState.mode === 'teacher' && swapState.teacher) {
+          await onSwapTeacherSelected(swapState.teacher);
+        }
+        return;
+      }
     }
     if (td.classList.contains('cell-swap-able')) {
       selectTarget(weekday, period);
@@ -1271,10 +1546,11 @@ document.addEventListener('click', () => {
 });
 
 // 选中源课程
-async function selectSource(td, weekday, period) {
-  const className = td.dataset.class;
-  const teacher = td.dataset.teacher;
-  const subject = td.dataset.subject;
+async function selectSource(td, weekday, period, half) {
+  // 如果点击了重课的某一半，使用该半的 data 属性
+  const className = half ? (half.dataset.class || '') : (td.dataset.class || '');
+  const teacher = half ? (half.dataset.teacher || '') : (td.dataset.teacher || '');
+  const subject = half ? (half.dataset.subject || '') : (td.dataset.subject || '');
   if (!teacher) { toast('该课程无教师，不可调', 'error'); return; }
   swapState.source = { class: className, weekday, period, teacher, subject, periodLabel: swapState.periodLabels ? (swapState.periodLabels[period] || `第${period}节`) : `第${period}节` };
   swapState.target = null;
@@ -1294,6 +1570,7 @@ async function selectSource(td, weekday, period) {
   renderSwapGridState();
   // 加载源教师参考课表
   await loadRefSchedule('source', teacher);
+  renderSwapGridState();
 }
 
 // 选中目标课程
@@ -1309,7 +1586,7 @@ function selectTarget(weekday, period) {
   };
   $('#swap-execute-btn').disabled = false;
   renderSwapGridState();
-  loadRefSchedule('target', cand.teacher);
+  loadRefSchedule('target', cand.teacher).then(() => renderSwapGridState());
 }
 
 // 渲染调课网格状态（高亮颜色）
@@ -1318,10 +1595,34 @@ function renderSwapGridState() {
   tds.forEach(td => {
     td.classList.remove('cell-swap-selected', 'cell-swap-able', 'cell-swap-target', 'cell-swap-disabled');
   });
+  // 清除半格高亮
+  const allHalves = $$('#swap-grid .cell-half');
+  allHalves.forEach(h => h.classList.remove('cell-half-selected', 'cell-half-able', 'cell-half-target'));
+  // 同时清除辅助课表高亮
+  ['swap-source-teacher-grid', 'swap-target-teacher-grid'].forEach(id => {
+    const refTds = $$(`#${id} td[data-weekday]`);
+    refTds.forEach(td => td.classList.remove('cell-swap-selected', 'cell-swap-able', 'cell-swap-target', 'cell-swap-disabled'));
+    const refHalves = $$(`#${id} .cell-half`);
+    refHalves.forEach(h => h.classList.remove('cell-half-selected', 'cell-half-able', 'cell-half-target'));
+  });
   if (!swapState.source) return;
-  // 高亮源课程（红色）
+  // 高亮源课程（红色）——优先检查重课半格
   const srcTd = $(`#swap-grid td[data-weekday="${swapState.source.weekday}"][data-period="${swapState.source.period}"]`);
-  if (srcTd) srcTd.classList.add('cell-swap-selected');
+  if (srcTd) {
+    const srcHalves = srcTd.querySelectorAll('.cell-half');
+    let srcHalf = null;
+    for (const h of srcHalves) {
+      if (h.dataset.class === swapState.source.class) { srcHalf = h; break; }
+    }
+    if (srcHalf) {
+      srcHalf.classList.add('cell-half-selected');
+    } else {
+      srcTd.classList.add('cell-swap-selected');
+    }
+  }
+  // 同步高亮源教师辅助课表中的对应单元格
+  const srcRefTd = $(`#swap-source-teacher-grid td[data-weekday="${swapState.source.weekday}"][data-period="${swapState.source.period}"]`);
+  if (srcRefTd) srcRefTd.classList.add('cell-swap-selected');
   // 高亮可对调/禁选
   for (const cand of swapState.candidates) {
     const td = $(`#swap-grid td[data-weekday="${cand.weekday}"][data-period="${cand.period}"]`);
@@ -1336,6 +1637,9 @@ function renderSwapGridState() {
       tgtTd.classList.remove('cell-swap-able');
       tgtTd.classList.add('cell-swap-target');
     }
+    // 同步高亮对调教师辅助课表中的目标单元格
+    const tgtRefTd = $(`#swap-target-teacher-grid td[data-weekday="${swapState.target.weekday}"][data-period="${swapState.target.period}"]`);
+    if (tgtRefTd) tgtRefTd.classList.add('cell-swap-target');
   }
 }
 
@@ -1356,6 +1660,7 @@ async function loadRefSchedule(type, teacherName) {
 
 // 执行对调
 async function executeSwapAction() {
+  if (!requireAuth('swap')) return;
   if (!swapState.source || !swapState.target) return;
   const btn = $('#swap-execute-btn');
   btn.disabled = true;
@@ -1410,6 +1715,8 @@ async function undoSwapAction() {
   toast('已撤销', 'success');
   swapState.canUndo = false;
   $('#swap-undo-btn').disabled = true;
+  // 刷新调课记录列表
+  loadSwapRecords();
   // 刷新调课网格
   if (swapState.mode === 'teacher') {
     if (swapState.teacher) await onSwapTeacherSelected(swapState.teacher);
@@ -1451,11 +1758,14 @@ async function loadSwapRecords() {
   const list = $('#swap-records-list');
   if (!list) return;
   const data = await api('/api/swap/records');
+  const count = (data.records || []).length;
+  const titleEl = $('#swap-records-title');
+  if (titleEl) titleEl.textContent = `调课记录(共${count}条记录)`;
   if (data.error || !data.records || !data.records.length) {
     list.innerHTML = '<div class="swap-record-empty">暂无调课记录</div>';
     return;
   }
-  const items = data.records.map(r => {
+  const items = data.records.slice().reverse().map(r => {
     const cls = r.fromClass || r.toClass || '';
     const wt = r.weekType || '';
     const text = `${cls}：${wt}${r.fromPeriod}${r.fromSubject}（${r.fromTeacher}）与${wt}${r.toPeriod}${r.toSubject}（${r.toTeacher}）互换${r.changeDate}`;

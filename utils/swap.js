@@ -19,8 +19,10 @@ function getPeriodType(period, periodLabel) {
   const label = (periodLabel || '').trim();
   if (label.includes('早')) return 'morning';
   if (label.includes('晚')) return 'evening';
-  // 无标签时按序号推断：1-8 为白课，9+ 为晚自习
-  if (period >= 1 && period <= 8) return 'day';
+  // 标签含"第X节"的为白课
+  if (/第\d+节/.test(label)) return 'day';
+  // 无标签时按序号推断：1-9 为白课（早自习1 + 第1~8节2-9），10+ 为晚自习
+  if (period >= 1 && period <= 9) return 'day';
   return 'evening';
 }
 
@@ -143,34 +145,44 @@ function checkSwappable(entries, source, target, weekType, meetings, teacherMeet
     };
   }
 
-  // 1. 源教师在目标时段是否有其他课（排除源课程自身）
-  const sourceTeacherBusy = entries.some(e =>
-    e.teacher === source.teacher &&
-    e.weekday === target.weekday &&
-    e.period === target.period &&
-    (e.weekType || '通用') === weekType &&
-    !(e.weekday === source.weekday && e.period === source.period && e.class === source.class)
-  );
-  if (sourceTeacherBusy) {
-    return {
-      swappable: false,
-      reason: `教师「${source.teacher}」在${WEEKDAY_NAMES[target.weekday]}${target.periodLabel || '第' + target.period + '节'}已有其他课程`
-    };
+  // 1. 源教师在目标时段是否有其他课
+  // 若源教师与目标教师为同一人，调课后该教师在两位置的课分布不变，不会新增重课，跳过此检查
+  if (source.teacher !== target.teacher) {
+    // 检查 source.teacher 调到 target 位置后是否在 target 位置形成重课
+    // 排除 target 位置自身（原本的课要被替换，不算"其他课"）
+    const sourceTeacherBusy = entries.some(e =>
+      e.teacher === source.teacher &&
+      e.weekday === target.weekday &&
+      e.period === target.period &&
+      (e.weekType || '通用') === weekType &&
+      !(e.weekday === target.weekday && e.period === target.period && e.class === target.class)
+    );
+    if (sourceTeacherBusy) {
+      return {
+        swappable: false,
+        reason: `教师「${source.teacher}」在${WEEKDAY_NAMES[target.weekday]}${target.periodLabel || '第' + target.period + '节'}已有其他课程`
+      };
+    }
   }
 
-  // 2. 目标教师在源时段是否有其他课（排除目标课程自身）
-  const targetTeacherBusy = entries.some(e =>
-    e.teacher === target.teacher &&
-    e.weekday === source.weekday &&
-    e.period === source.period &&
-    (e.weekType || '通用') === weekType &&
-    !(e.weekday === target.weekday && e.period === target.period && e.class === target.class)
-  );
-  if (targetTeacherBusy) {
-    return {
-      swappable: false,
-      reason: `教师「${target.teacher}」在${WEEKDAY_NAMES[source.weekday]}${source.periodLabel || '第' + source.period + '节'}已有其他课程`
-    };
+  // 2. 目标教师在源时段是否有其他课
+  // 若源教师与目标教师为同一人，跳过此检查（理由同上）
+  if (source.teacher !== target.teacher) {
+    // 检查 target.teacher 调到 source 位置后是否在 source 位置形成重课
+    // 排除 source 位置自身（原本的课要被替换，不算"其他课"）
+    const targetTeacherBusy = entries.some(e =>
+      e.teacher === target.teacher &&
+      e.weekday === source.weekday &&
+      e.period === source.period &&
+      (e.weekType || '通用') === weekType &&
+      !(e.weekday === source.weekday && e.period === source.period && e.class === source.class)
+    );
+    if (targetTeacherBusy) {
+      return {
+        swappable: false,
+        reason: `教师「${target.teacher}」在${WEEKDAY_NAMES[source.weekday]}${source.periodLabel || '第' + source.period + '节'}已有其他课程`
+      };
+    }
   }
 
   // 3. 源教师在目标时段是否有必须参加的会议
@@ -203,24 +215,6 @@ function checkSwappable(entries, source, target, weekType, meetings, teacherMeet
       e.period === source.period &&
       (e.weekType || '通用') === otherWeekType
     );
-    if (srcInOtherWeek && srcInOtherWeek.teacher) {
-      const srcOtherBusy = allEntries.some(e =>
-        e.teacher === srcInOtherWeek.teacher &&
-        e.weekday === target.weekday &&
-        e.period === target.period &&
-        (e.weekType || '通用') === otherWeekType &&
-        !(e.weekday === source.weekday && e.period === source.period && e.class === source.class)
-      );
-      if (srcOtherBusy) {
-        const paired = PAIRED_SUBJECTS[source.subject];
-        const label = paired ? `（${source.subject}↔${paired}）` : '';
-        return {
-          swappable: false,
-          reason: `教师「${srcInOtherWeek.teacher}」${label}在${WEEKDAY_NAMES[target.weekday]}${target.periodLabel || '第' + target.period + '节'}（${otherWeekType}）已有其他课程`
-        };
-      }
-    }
-
     // 对周目标位置的教师（调课后要移到对周源位置）
     const tgtInOtherWeek = allEntries.find(e =>
       e.class === target.class &&
@@ -228,21 +222,55 @@ function checkSwappable(entries, source, target, weekType, meetings, teacherMeet
       e.period === target.period &&
       (e.weekType || '通用') === otherWeekType
     );
+    if (srcInOtherWeek && srcInOtherWeek.teacher) {
+      // 检查 srcInOtherWeek.teacher 调到对周目标位置后是否冲突
+      // 若对周目标位置原教师与对周源位置原教师为同一人，则调课后对周无变化，跳过此检查
+      const sameTeacherInOtherWeek = tgtInOtherWeek && tgtInOtherWeek.teacher === srcInOtherWeek.teacher;
+      if (!sameTeacherInOtherWeek) {
+        // 排除对周目标位置自身（要被替换的课）
+        // 排除对周源位置自身（该教师原本就在那里，不算新增冲突）
+        const srcOtherBusy = allEntries.some(e =>
+          e.teacher === srcInOtherWeek.teacher &&
+          e.weekday === target.weekday &&
+          e.period === target.period &&
+          (e.weekType || '通用') === otherWeekType &&
+          !(e.weekday === target.weekday && e.period === target.period && e.class === target.class) &&
+          !(e.weekday === source.weekday && e.period === source.period && e.class === source.class)
+        );
+        if (srcOtherBusy) {
+          const paired = PAIRED_SUBJECTS[source.subject];
+          const label = paired ? `（${source.subject}↔${paired}）` : '';
+          return {
+            swappable: false,
+            reason: `教师「${srcInOtherWeek.teacher}」${label}在${WEEKDAY_NAMES[target.weekday]}${target.periodLabel || '第' + target.period + '节'}（${otherWeekType}）已有其他课程`
+          };
+        }
+      }
+    }
+
     if (tgtInOtherWeek && tgtInOtherWeek.teacher) {
-      const tgtOtherBusy = allEntries.some(e =>
-        e.teacher === tgtInOtherWeek.teacher &&
-        e.weekday === source.weekday &&
-        e.period === source.period &&
-        (e.weekType || '通用') === otherWeekType &&
-        !(e.weekday === target.weekday && e.period === target.period && e.class === target.class)
-      );
-      if (tgtOtherBusy) {
-        const paired = PAIRED_SUBJECTS[target.subject];
-        const label = paired ? `（${target.subject}↔${paired}）` : '';
-        return {
-          swappable: false,
-          reason: `教师「${tgtInOtherWeek.teacher}」${label}在${WEEKDAY_NAMES[source.weekday]}${source.periodLabel || '第' + source.period + '节'}（${otherWeekType}）已有其他课程`
-        };
+      // 检查 tgtInOtherWeek.teacher 调到对周源位置后是否冲突
+      // 若对周源位置原教师与对周目标位置原教师为同一人，则调课后对周无变化，跳过此检查
+      const sameTeacherInOtherWeek = srcInOtherWeek && srcInOtherWeek.teacher === tgtInOtherWeek.teacher;
+      if (!sameTeacherInOtherWeek) {
+        // 排除对周源位置自身（要被替换的课）
+        // 排除对周目标位置自身（该教师原本就在那里，不算新增冲突）
+        const tgtOtherBusy = allEntries.some(e =>
+          e.teacher === tgtInOtherWeek.teacher &&
+          e.weekday === source.weekday &&
+          e.period === source.period &&
+          (e.weekType || '通用') === otherWeekType &&
+          !(e.weekday === source.weekday && e.period === source.period && e.class === source.class) &&
+          !(e.weekday === target.weekday && e.period === target.period && e.class === target.class)
+        );
+        if (tgtOtherBusy) {
+          const paired = PAIRED_SUBJECTS[target.subject];
+          const label = paired ? `（${target.subject}↔${paired}）` : '';
+          return {
+            swappable: false,
+            reason: `教师「${tgtInOtherWeek.teacher}」${label}在${WEEKDAY_NAMES[source.weekday]}${source.periodLabel || '第' + source.period + '节'}（${otherWeekType}）已有其他课程`
+          };
+        }
       }
     }
   }
@@ -253,7 +281,7 @@ function checkSwappable(entries, source, target, weekType, meetings, teacherMeet
 /**
  * 执行对调：交换两节课的 subject 和 teacher
  */
-function executeSwap(entries, source, target, weekType, meetings, teacherMap) {
+function executeSwap(entries, source, target, weekType, meetings, teacherMap, skipCheck) {
   const sIdx = entries.findIndex(e =>
     e.class === source.class &&
     e.weekday === source.weekday &&
@@ -270,9 +298,12 @@ function executeSwap(entries, source, target, weekType, meetings, teacherMap) {
   if (tIdx < 0) throw new Error('目标课程不存在');
 
   // 最终校验（传入全量 entries 用于关联科目对周教师冲突检查）
-  const teacherMeetings = buildTeacherMeetings(teacherMap);
-  const check = checkSwappable(entries, entries[sIdx], entries[tIdx], weekType, meetings, teacherMeetings, entries);
-  if (!check.swappable) throw new Error('对调校验失败：' + check.reason);
+  // skipCheck=true 时跳过（对周同步交换，第一次调用已做过完整校验）
+  if (!skipCheck) {
+    const teacherMeetings = buildTeacherMeetings(teacherMap);
+    const check = checkSwappable(entries, entries[sIdx], entries[tIdx], weekType, meetings, teacherMeetings, entries);
+    if (!check.swappable) throw new Error('对调校验失败：' + check.reason);
+  }
 
   // 交换 subject 和 teacher（class/weekday/period 不变）
   const tmpSubject = entries[sIdx].subject;
