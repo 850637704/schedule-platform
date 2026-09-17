@@ -55,6 +55,48 @@ function exportUrl(base) {
   return base + weekParam('?');
 }
 
+// 将 DOM 元素导出为 PNG 图片（克隆到离屏容器，去除 sticky 定位避免渲染问题）
+async function exportElementAsImage(elements, filename) {
+  if (typeof html2canvas === 'undefined') {
+    toast('图片导出库未加载，请刷新重试', 'error');
+    return;
+  }
+  // 离屏容器
+  const container = document.createElement('div');
+  container.style.cssText = 'position:absolute;left:-99999px;top:0;background:#ffffff;padding:16px;';
+  let hasContent = false;
+  elements.forEach(el => {
+    if (!el || !el.innerHTML) return;
+    const clone = el.cloneNode(true);
+    clone.style.overflow = 'visible';
+    clone.style.width = el.offsetWidth + 'px';
+    // 去除 sticky 定位（html2canvas 对 sticky 支持不佳）
+    clone.querySelectorAll('th, td').forEach(cell => { cell.style.position = 'static'; });
+    container.appendChild(clone);
+    hasContent = true;
+  });
+  if (!hasContent) { toast('无可导出的课表内容', 'error'); return; }
+  document.body.appendChild(container);
+  try {
+    toast('正在生成图片...', 'info');
+    const canvas = await html2canvas(container, {
+      backgroundColor: '#ffffff',
+      scale: 2,
+      useCORS: true,
+      logging: false
+    });
+    const link = document.createElement('a');
+    link.download = filename + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    toast('图片导出成功', 'success');
+  } catch (err) {
+    toast('图片导出失败：' + err.message, 'error');
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
 // ===== 导航 =====
 $$('.nav-item').forEach(item => {
   item.addEventListener('click', (e) => {
@@ -114,16 +156,31 @@ function initWeekBar(weeks, defaultWeek) {
 }
 
 // ===== 数据状态检查 =====
+function formatUploadTime(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function setUploadStatus(uploadedAt) {
+  const el = $('#data-status');
+  const time = formatUploadTime(uploadedAt);
+  if (time) {
+    el.innerHTML = '✓ 已上传课表<br><span class="upload-time">' + time + '</span>';
+    el.classList.add('active');
+  } else {
+    el.textContent = '未上传课表';
+    el.classList.remove('active');
+  }
+}
 async function checkData() {
   const data = await api('/api/overview');
   if (data.hasData) {
-    $('#data-status').textContent = '✓ 已上传课表';
-    $('#data-status').classList.add('active');
+    setUploadStatus(data.uploadedAt);
     initWeekBar(data.weeks, data.week);
     return true;
   }
-  $('#data-status').textContent = '未上传课表';
-  $('#data-status').classList.remove('active');
+  setUploadStatus(null);
   initWeekBar([], null);
   return false;
 }
@@ -166,7 +223,7 @@ async function uploadFile(file) {
       result.innerHTML = `<div class="alert alert-error">${escapeHtml(data.error)}</div>`;
       return;
     }
-    $('#data-status').textContent = '✓ 已上传课表';
+    $('#data-status').innerHTML = '✓ 已上传课表<br><span class="upload-time">' + formatUploadTime(data.uploadedAt) + '</span>';
     $('#data-status').classList.add('active');
     // 清除之前缓存的选中状态，确保新课表数据不被旧选择污染
     lastTeacherSel = '';
@@ -345,6 +402,15 @@ async function loadClassList() {
       else toast('请先选择班级', 'error');
     });
   }
+  const exportImgBtn = $('#class-export-img-btn');
+  if (!exportImgBtn.dataset.bound) {
+    exportImgBtn.dataset.bound = 1;
+    exportImgBtn.addEventListener('click', () => {
+      const cur = $('#class-select')._value || '';
+      if (!cur) { toast('请先选择班级', 'error'); return; }
+      exportElementAsImage([$('#class-teachers'), $('#class-grid')], `${cur}_课表`);
+    });
+  }
   const all = data.classes.slice().sort();
   initCombobox('class-select', all, lastClassSel, (val) => {
     lastClassSel = val;
@@ -473,6 +539,15 @@ async function loadTeacherList() {
       const cur = $('#teacher-select')._value || '';
       if (cur) window.open(exportUrl(`/api/export/teacher/${encodeURIComponent(cur)}`), '_blank');
       else toast('请先选择教师', 'error');
+    });
+  }
+  const exportImgBtn = $('#teacher-export-img-btn');
+  if (!exportImgBtn.dataset.bound) {
+    exportImgBtn.dataset.bound = 1;
+    exportImgBtn.addEventListener('click', () => {
+      const cur = $('#teacher-select')._value || '';
+      if (!cur) { toast('请先选择教师', 'error'); return; }
+      exportElementAsImage([$('#teacher-grid')], `${cur}_课表`);
     });
   }
   const all = data.teachers.slice().sort();
@@ -1202,8 +1277,24 @@ function updateAuthUI() {
 // 登录弹窗
 function showLoginModal() {
   $('#login-modal').style.display = 'flex';
-  $('#login-account').value = '';
-  $('#login-password').value = '';
+  // 从 localStorage 恢复记住的账号密码
+  const saved = localStorage.getItem('rememberedLogin');
+  if (saved) {
+    try {
+      const { account, password } = JSON.parse(saved);
+      $('#login-account').value = account || '';
+      $('#login-password').value = password || '';
+      $('#login-remember').checked = true;
+    } catch {
+      $('#login-account').value = '';
+      $('#login-password').value = '';
+      $('#login-remember').checked = false;
+    }
+  } else {
+    $('#login-account').value = '';
+    $('#login-password').value = '';
+    $('#login-remember').checked = false;
+  }
   setTimeout(() => $('#login-account').focus(), 100);
 }
 function hideLoginModal() {
@@ -1222,15 +1313,22 @@ function hideLogoutModal() {
 async function doLogin() {
   const account = $('#login-account').value.trim();
   const password = $('#login-password').value.trim();
+  const remember = $('#login-remember').checked;
   if (!account || !password) { toast('请输入账号和密码', 'error'); return; }
   try {
     const data = await api('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account, password })
+      body: JSON.stringify({ account, password, remember })
     });
     if (data.error) { toast(data.error, 'error'); return; }
     currentUser = data.user;
+    // 勾选"记住账号密码"：保存到 localStorage；未勾选：清除
+    if (remember) {
+      localStorage.setItem('rememberedLogin', JSON.stringify({ account, password }));
+    } else {
+      localStorage.removeItem('rememberedLogin');
+    }
     hideLoginModal();
     updateAuthUI();
     toast('登录成功', 'success');

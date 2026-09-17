@@ -39,7 +39,7 @@ app.use(session({
   secret: 'schedule-platform-secret-key-2026',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 2 * 60 * 60 * 1000 }  // 2小时过期
+  cookie: { maxAge: 2 * 60 * 60 * 1000 }  // 默认2小时过期
 }));
 
 app.use(express.json());
@@ -127,11 +127,18 @@ function filterByWeek(data, week) {
 
 // 登录
 app.post('/api/login', (req, res) => {
-  const { account, password } = req.body;
+  const { account, password, remember } = req.body;
   if (!account || !password) return res.status(400).json({ error: '请输入账号和密码' });
   const user = userStore.verifyUser(account, password);
   if (!user) return res.status(401).json({ error: '账号或密码错误' });
   req.session.user = user;
+  // 勾选"记住账号密码"：cookie 30天有效；未勾选：session cookie（浏览器关闭时过期）
+  if (remember) {
+    req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30天
+  } else {
+    req.session.cookie.expires = null;  // session cookie（浏览器关闭时过期）
+    req.session.cookie.maxAge = null;
+  }
   res.json({ ok: true, user: { type: user.type, account: user.account } });
 });
 
@@ -253,7 +260,7 @@ app.post('/api/upload', requireLogin, upload.single('file'), (req, res) => {
     // 保存上传的文件作为模板（覆盖旧的）
     const templatePath = scheduleStore.getTemplatePath(getScheduleUserId(req));
     fs.copyFileSync(req.file.path, templatePath);
-    res.json({ ok: true, ...stats, sheets, weeks: data.weeks, meetings: data.meetings || [], leaves: data.leaves || [], swapRecords: data.swapRecords });
+    res.json({ ok: true, ...stats, sheets, weeks: data.weeks, uploadedAt: data.uploadedAt, meetings: data.meetings || [], leaves: data.leaves || [], swapRecords: data.swapRecords });
   } catch (err) {
     res.status(500).json({ error: '解析失败：' + err.message });
   } finally {
@@ -1007,6 +1014,17 @@ app.delete('/api/data', requireLogin, (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`课表管理平台已启动: http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  const os = require('os');
+  const nets = os.networkInterfaces();
+  let lanIP = '';
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) { lanIP = net.address; break; }
+    }
+    if (lanIP) break;
+  }
+  console.log(`课表管理平台已启动:`);
+  console.log(`  本机访问: http://localhost:${PORT}`);
+  if (lanIP) console.log(`  局域网访问: http://${lanIP}:${PORT}`);
 });
