@@ -6,4 +6,3 @@ data/*.json
 .DS_Store
 page-*.png
 page-*.png.*
-.env
