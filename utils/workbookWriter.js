@@ -2,7 +2,6 @@
 // 调课时同步修改上传的课表工作簿，并追加调课记录
 
 const ExcelJS = require('exceljs');
-const fs = require('fs');
 
 const WEEKDAY_NAMES = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周天'];
 
@@ -117,15 +116,15 @@ const PAIRED_SUBJECTS = {
 /**
  * 修改工作簿：交换两个单元格的科目值
  * 高一/高二调课时，如果涉及信息/心理或美术/音乐，需同步修改对周工作表中关联科目的单元格
- * @param {string} templatePath - 工作簿文件路径
+ * @param {Buffer} buffer - 工作簿 Buffer
  * @param {Object} source - { class, weekday, period, periodLabel, teacher, subject }
  * @param {Object} target - { class, weekday, period, periodLabel, teacher, subject }
  * @param {string} weekType - '单周' | '双周' | '通用'
+ * @returns {Promise<Buffer>} 修改后的工作簿 Buffer
  */
-async function modifyWorkbookOnSwap(templatePath, source, target, weekType) {
-  if (!fs.existsSync(templatePath)) return;
+async function modifyWorkbookOnSwap(buffer, source, target, weekType) {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.readFile(templatePath);
+  await wb.xlsx.load(buffer);
 
   // 判断年级
   const grade = getGradeLevel(source.class);
@@ -204,7 +203,7 @@ async function modifyWorkbookOnSwap(templatePath, source, target, weekType) {
     }
   }
 
-  await wb.xlsx.writeFile(templatePath);
+  return await wb.xlsx.writeBuffer();
 }
 
 /**
@@ -245,13 +244,13 @@ function ensureSwapRecordSheet(wb) {
 
 /**
  * 在"7调课记录"工作表中追加一条记录
- * @param {string} templatePath - 工作簿文件路径
+ * @param {Buffer} buffer - 工作簿 Buffer
  * @param {Object} record - { weekType, fromClass, fromPeriod, fromSubject, fromTeacher, toClass, toPeriod, toSubject, toTeacher, changeDate }
+ * @returns {Promise<Buffer>} 修改后的工作簿 Buffer
  */
-async function appendSwapRecord(templatePath, record) {
-  if (!fs.existsSync(templatePath)) return;
+async function appendSwapRecord(buffer, record) {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.readFile(templatePath);
+  await wb.xlsx.load(buffer);
 
   const rSheet = ensureSwapRecordSheet(wb);
 
@@ -283,18 +282,18 @@ async function appendSwapRecord(templatePath, record) {
   row.getCell(10).value = record.changeDate || '';
   row.commit();
 
-  await wb.xlsx.writeFile(templatePath);
+  return await wb.xlsx.writeBuffer();
 }
 
 /**
  * 读取"7调课记录"工作表中已有记录
- * @param {string} templatePath - 工作簿文件路径
- * @returns {Array} 调课记录数组
+ * @param {Buffer} buffer - 工作簿 Buffer
+ * @returns {Promise<Array>} 调课记录数组
  */
-async function getSwapRecords(templatePath) {
-  if (!fs.existsSync(templatePath)) return [];
+async function getSwapRecords(buffer) {
+  if (!buffer) return [];
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.readFile(templatePath);
+  await wb.xlsx.load(buffer);
 
   const sheetName = wb.worksheets.map(ws => ws.name).find(n => /调课记录/.test(n));
   if (!sheetName) return [];
@@ -329,15 +328,16 @@ async function getSwapRecords(templatePath) {
 
 /**
  * 删除"7调课记录"工作表中最后一条记录（用于撤销调课）
- * @param {string} templatePath - 工作簿文件路径
+ * @param {Buffer} buffer - 工作簿 Buffer
+ * @returns {Promise<Buffer>} 修改后的工作簿 Buffer
  */
-async function removeLastSwapRecord(templatePath) {
-  if (!fs.existsSync(templatePath)) return;
+async function removeLastSwapRecord(buffer) {
+  if (!buffer) return buffer;
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.readFile(templatePath);
+  await wb.xlsx.load(buffer);
 
   const sheetName = wb.worksheets.map(ws => ws.name).find(n => /调课记录/.test(n));
-  if (!sheetName) return;
+  if (!sheetName) return buffer;
   const rSheet = wb.getWorksheet(sheetName);
 
   // 查找最后一行有数据的行（表头占2行，从第3行开始）
@@ -357,8 +357,9 @@ async function removeLastSwapRecord(templatePath) {
       row.getCell(c).value = null;
     }
     row.commit();
-    await wb.xlsx.writeFile(templatePath);
+    return await wb.xlsx.writeBuffer();
   }
+  return buffer;
 }
 
 module.exports = {

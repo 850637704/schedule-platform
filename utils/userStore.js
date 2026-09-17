@@ -1,9 +1,10 @@
 // 用户数据管理模块
-// 管理 data/users.json，处理账号创建、密码哈希、验证等
+// 当 DATABASE_URL 存在时使用 Postgres 存储，否则使用本地 data/users.json
 
 const fs = require('fs');
 const path = require('path');
 const CryptoJS = require('crypto-js');
+const db = require('./db');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
@@ -26,8 +27,11 @@ function ensureDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// 读取用户数据
-function loadUsers() {
+// 读取用户数据（异步，兼容 Postgres 和本地文件）
+async function loadUsers() {
+  if (db.isPostgresEnabled()) {
+    return await db.getJson('users');
+  }
   try {
     return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
   } catch {
@@ -36,14 +40,18 @@ function loadUsers() {
 }
 
 // 保存用户数据
-function saveUsers(data) {
+async function saveUsers(data) {
+  if (db.isPostgresEnabled()) {
+    await db.setJson('users', data);
+    return;
+  }
   ensureDir();
   fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2));
 }
 
 // 初始化：首次启动创建默认超管账号
-function initUsers() {
-  let data = loadUsers();
+async function initUsers() {
+  let data = await loadUsers();
   if (!data) {
     data = {
       superAdmin: {
@@ -54,14 +62,14 @@ function initUsers() {
       },
       admins: []
     };
-    saveUsers(data);
+    await saveUsers(data);
   }
   return data;
 }
 
 // 校验超管密码（支持多个密码）
-function verifySuperAdmin(account, password) {
-  const data = loadUsers();
+async function verifySuperAdmin(account, password) {
+  const data = await loadUsers();
   if (!data || !data.superAdmin) return null;
   if (data.superAdmin.account !== account) return null;
   const hash = hashPassword(password);
@@ -72,8 +80,8 @@ function verifySuperAdmin(account, password) {
 }
 
 // 校验管理员密码
-function verifyAdmin(account, password) {
-  const data = loadUsers();
+async function verifyAdmin(account, password) {
+  const data = await loadUsers();
   if (!data || !data.admins) return null;
   const admin = data.admins.find(a => a.account === account);
   if (!admin) return null;
@@ -85,13 +93,13 @@ function verifyAdmin(account, password) {
 }
 
 // 通用登录校验
-function verifyUser(account, password) {
-  return verifySuperAdmin(account, password) || verifyAdmin(account, password);
+async function verifyUser(account, password) {
+  return (await verifySuperAdmin(account, password)) || (await verifyAdmin(account, password));
 }
 
 // 添加管理员
-function addAdmin(account, password) {
-  const data = loadUsers();
+async function addAdmin(account, password) {
+  const data = await loadUsers();
   if (!data) return { error: '用户数据未初始化' };
   if (data.admins.some(a => a.account === account)) {
     return { error: '账号已存在' };
@@ -106,35 +114,35 @@ function addAdmin(account, password) {
     createdAt: new Date().toISOString()
   };
   data.admins.push(admin);
-  saveUsers(data);
+  await saveUsers(data);
   return { ok: true, id: admin.id };
 }
 
 // 删除管理员（返回被删除管理员的 ID 以便删除课表）
-function removeAdmin(id) {
-  const data = loadUsers();
+async function removeAdmin(id) {
+  const data = await loadUsers();
   if (!data) return { error: '用户数据未初始化' };
   const idx = data.admins.findIndex(a => a.id === id);
   if (idx === -1) return { error: '管理员不存在' };
   data.admins.splice(idx, 1);
-  saveUsers(data);
+  await saveUsers(data);
   return { ok: true, id };
 }
 
 // 重置管理员密码
-function resetAdminPassword(id, newPassword) {
-  const data = loadUsers();
+async function resetAdminPassword(id, newPassword) {
+  const data = await loadUsers();
   if (!data) return { error: '用户数据未初始化' };
   const admin = data.admins.find(a => a.id === id);
   if (!admin) return { error: '管理员不存在' };
   admin.password = hashPassword(newPassword);
-  saveUsers(data);
+  await saveUsers(data);
   return { ok: true };
 }
 
 // 获取管理员列表（不含密码）
-function getAdminList() {
-  const data = loadUsers();
+async function getAdminList() {
+  const data = await loadUsers();
   if (!data) return [];
   return data.admins.map(a => ({
     id: a.id,
@@ -144,21 +152,21 @@ function getAdminList() {
 }
 
 // 超管新增密码
-function addSuperAdminPassword(password) {
-  const data = loadUsers();
+async function addSuperAdminPassword(password) {
+  const data = await loadUsers();
   if (!data || !data.superAdmin) return { error: '超管数据不存在' };
   const hash = hashPassword(password);
   if (data.superAdmin.passwords.includes(hash)) {
     return { error: '该密码已存在' };
   }
   data.superAdmin.passwords.push(hash);
-  saveUsers(data);
+  await saveUsers(data);
   return { ok: true };
 }
 
 // 超管删除密码（990322 不可删）
-function removeSuperAdminPassword(hash) {
-  const data = loadUsers();
+async function removeSuperAdminPassword(hash) {
+  const data = await loadUsers();
   if (!data || !data.superAdmin) return { error: '超管数据不存在' };
   const defaultHash = hashPassword(DEFAULT_PASSWORD);
   if (hash === defaultHash) {
@@ -170,50 +178,49 @@ function removeSuperAdminPassword(hash) {
     return { error: '至少保留一个密码' };
   }
   data.superAdmin.passwords.splice(idx, 1);
-  saveUsers(data);
+  await saveUsers(data);
   return { ok: true };
 }
 
 // 获取超管密码列表（返回哈希，不含明文）
-function getSuperAdminPasswords() {
-  const data = loadUsers();
+async function getSuperAdminPasswords() {
+  const data = await loadUsers();
   if (!data || !data.superAdmin) return [];
   return data.superAdmin.passwords.map(h => ({ hash: h, isDefault: h === hashPassword(DEFAULT_PASSWORD) }));
 }
 
 // 重置超管为默认密码
-function resetSuperAdmin() {
-  const data = loadUsers();
+async function resetSuperAdmin() {
+  const data = await loadUsers();
   if (!data || !data.superAdmin) {
-    // 完全不存在，重新创建
-    initUsers();
+    await initUsers();
     return { ok: true };
   }
   data.superAdmin.passwords = [hashPassword(DEFAULT_PASSWORD)];
-  saveUsers(data);
+  await saveUsers(data);
   return { ok: true };
 }
 
 // 设置超管安全问题
-function setSecurityQuestion(question, answer) {
-  const data = loadUsers();
+async function setSecurityQuestion(question, answer) {
+  const data = await loadUsers();
   if (!data || !data.superAdmin) return { error: '超管数据不存在' };
   data.superAdmin.securityQuestion = question;
   data.superAdmin.securityAnswer = hashPassword(answer);
-  saveUsers(data);
+  await saveUsers(data);
   return { ok: true };
 }
 
 // 获取安全问题
-function getSecurityQuestion() {
-  const data = loadUsers();
+async function getSecurityQuestion() {
+  const data = await loadUsers();
   if (!data || !data.superAdmin) return null;
   return data.superAdmin.securityQuestion || null;
 }
 
 // 验证安全问题答案
-function verifySecurityAnswer(answer) {
-  const data = loadUsers();
+async function verifySecurityAnswer(answer) {
+  const data = await loadUsers();
   if (!data || !data.superAdmin) return false;
   return data.superAdmin.securityAnswer === hashPassword(answer);
 }
