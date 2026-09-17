@@ -4,8 +4,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
 
 // 超管课表文件路径
 const SUPER_SCHEDULE_FILE = path.join(DATA_DIR, 'schedule_super.json');

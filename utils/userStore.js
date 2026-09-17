@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const CryptoJS = require('crypto-js');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 
 const SUPER_ADMIN_ACCOUNT = '17347363572';
