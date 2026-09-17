@@ -903,6 +903,9 @@ app.post('/api/swap/execute', requireLogin, async (req, res) => {
 
     saveScheduleData(req, data);
 
+    // 自动运行冲突分析
+    const conflicts = analyzeConflicts(data.entries || [], data.meetings || [], data.teacherMap || {}, data.leaves || []);
+
     // 同步修改 Excel 工作簿并追加调课记录
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
@@ -947,7 +950,8 @@ app.post('/api/swap/execute', requireLogin, async (req, res) => {
       sourceTeacherEntries,
       sourceTeacherName: source.teacher,
       targetTeacherEntries,
-      targetTeacherName: targetTeacher
+      targetTeacherName: target.teacher,
+      conflicts
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -965,6 +969,9 @@ app.post('/api/swap/undo', requireLogin, async (req, res) => {
   data.entries = backup.entries;
   delete data._lastBackup;
   saveScheduleData(req, data);
+
+  // 自动运行冲突分析
+  const conflicts = analyzeConflicts(data.entries || [], data.meetings || [], data.teacherMap || {}, data.leaves || []);
 
   // 恢复 Excel 工作簿：再交换一次 source/target 恢复原始单元格值，并删除最后一条调课记录
   const templatePath = scheduleStore.getTemplatePath(getScheduleUserId(req));
@@ -989,7 +996,7 @@ app.post('/api/swap/undo', requireLogin, async (req, res) => {
 
   const { entries } = filterByWeek(data, weekType);
   const periodLabels = getPeriodLabels(entries);
-  res.json({ ok: true, canUndo: false, entries, periodLabels });
+  res.json({ ok: true, canUndo: false, entries, periodLabels, conflicts });
 });
 
 // 获取调课记录
