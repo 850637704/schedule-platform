@@ -1,0 +1,18 @@
+services:
+  schedule-platform:
+    build: .
+    container_name: schedule-platform
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DATA_DIR=/app/data
+      - UPLOAD_DIR=/app/uploads
+    volumes:
+      - schedule-data:/app/data
+      - schedule-uploads:/app/uploads
+
+volumes:
+  schedule-data:
+  schedule-uploads:
