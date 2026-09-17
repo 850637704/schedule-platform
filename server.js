@@ -5,7 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
 
-const { parseWorkbook } = require('./utils/parser');
+const { parseWorkbook, buildTeacherMap } = require('./utils/parser');
+const XLSX = require('xlsx');
 const { analyzeConflicts, getStats } = require('./utils/analyzer');
 const { teacherStatistics, classStatistics } = require('./utils/statistics');
 const {
@@ -229,7 +230,7 @@ app.get('/api/security-question', (req, res) => {
 app.post('/api/upload', requireLogin, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '请上传文件' });
   try {
-    const { entries, sheets, weeks, teacherMap, meetings, leaves, swapRecords } = parseWorkbook(req.file.path);
+    const { entries, sheets, weeks, teacherMap, teacherSubjects, meetings, leaves, swapRecords } = parseWorkbook(req.file.path);
     if (!entries.length) {
       return res.status(400).json({ error: '未能从文件中解析出课表数据，请检查文件格式。需要包含「总课表」和「教师安排」工作表。' });
     }
@@ -242,6 +243,7 @@ app.post('/api/upload', requireLogin, upload.single('file'), (req, res) => {
       stats,
       weeks: weeks || ['通用'],
       teacherMap: teacherMap || {},
+      teacherSubjects: teacherSubjects || [],
       meetings: meetings || [],
       leaves: leaves || [],
       swapRecords: swapRecords || []
@@ -274,19 +276,37 @@ app.get('/api/overview', (req, res) => {
   // totalEntries 按周次统计，teacherCount/subjectCount/classCount 基于全量统计
   const weekStats = getStats(entries);
   const allStats = getStats(data.entries);
+  // 科目数优先使用教师安排表的科目（更准确），课表可能含"班会"等非教学科目
+  const teacherSubjectsList = (() => {
+    if (data.teacherSubjects && data.teacherSubjects.length) return data.teacherSubjects;
+    try {
+      const templatePath = scheduleStore.getTemplatePath(getScheduleUserId(req));
+      if (fs.existsSync(templatePath)) {
+        const wb = XLSX.readFile(templatePath);
+        const tName = wb.SheetNames.find(n => /教师安排/.test(n));
+        if (tName) {
+          const { subjects } = buildTeacherMap(wb.Sheets[tName]);
+          if (subjects && subjects.length) return subjects;
+        }
+      }
+    } catch {}
+    return [...new Set(Object.values(data.teacherMap || {}).flatMap(info => Object.keys(info).filter(k => !k.startsWith('_'))))];
+  })();
   res.json({
     hasData: true,
     totalEntries: weekStats.totalEntries,
     classCount: allStats.classCount,
     teacherCount: allStats.teacherCount,
-    subjectCount: allStats.subjectCount,
+    subjectCount: teacherSubjectsList.length,
     classes: allStats.classes,
     teachers: allStats.teachers,
-    subjects: allStats.subjects,
+    subjects: teacherSubjectsList,
     uploadedAt: data.uploadedAt,
     filename: data.filename,
     weeks,
-    week
+    week,
+    teacherMap: data.teacherMap || {},
+    teacherSubjects: teacherSubjectsList
   });
 });
 

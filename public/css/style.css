@@ -339,16 +339,27 @@ h2 { font-size: 17px; margin-bottom: 14px; }
   background: #fdecea;
   padding: 0;
   position: relative;
+  overflow: hidden;
+  max-height: var(--row-h);
+}
+.schedule-grid .cell-conflict .cell-subject {
+  font-size: clamp(9px, 0.75vw, 11px);
+  line-height: 1.1;
 }
 .schedule-grid .cell-conflict .cell-class {
   color: var(--danger);
   font-weight: 600;
+  font-size: clamp(8px, 0.65vw, 10px);
+  line-height: 1.1;
+  margin-top: 0;
 }
 /* 重课单元格左右对半分割 */
 .schedule-grid .cell-split {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
   display: flex;
   width: 100%;
-  height: 100%;
+  overflow: hidden;
 }
 .schedule-grid .cell-half {
   flex: 1;
@@ -356,12 +367,20 @@ h2 { font-size: 17px; margin-bottom: 14px; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: clamp(2px, 0.5vw, 6px) clamp(1px, 0.3vw, 3px);
+  padding: clamp(1px, 0.3vw, 3px) clamp(1px, 0.3vw, 3px);
   min-width: 0;
   overflow: hidden;
+  transition: background-color 0.15s;
 }
 .schedule-grid .cell-half:first-child {
   border-right: 1px dashed rgba(0,0,0,0.15);
+}
+/* 重课单元格：hover 只高亮鼠标所在的那一半，而不是整个 td */
+.schedule-grid td.cell-conflict:hover {
+  background: #fdecea !important;
+}
+.schedule-grid .cell-conflict .cell-half:hover {
+  background: #cde2f5;
 }
 /* 调课模式下，每半独立可选高亮 */
 .schedule-grid .cell-half.cell-half-selected {
@@ -613,8 +632,8 @@ table.data-table tr:hover td { background: var(--primary-light); }
   color: transparent;
 }
 /* 单元格悬停高亮：班级课表、教师课表
-   排除：表头th（周一~周天）、首列节次（节次~晚4）、空单元格 */
-.schedule-grid td:hover:not(.cell-empty):not(:first-child) {
+   排除：表头th（周一~周天）、首列节次（节次~晚4）、空单元格、重课单元格（由 cell-half 独立响应） */
+.schedule-grid td:hover:not(.cell-empty):not(:first-child):not(.cell-conflict) {
   background: #cde2f5 !important;
   cursor: default;
 }
@@ -944,8 +963,9 @@ table.data-table tr:hover td { background: var(--primary-light); }
   background: #fff3cd !important;
 }
 .swap-grid-wrap .schedule-grid td.cell-own-teacher .cell-subject,
-.swap-grid-wrap .schedule-grid td.cell-own-teacher .cell-teacher {
-  color: #856404;
+.swap-grid-wrap .schedule-grid td.cell-own-teacher .cell-teacher,
+.swap-grid-wrap .schedule-grid td.cell-own-teacher .cell-class {
+  color: #e67e22;
 }
 /* 选中状态（浅红） */
 .swap-grid-wrap .schedule-grid td.cell-swap-selected {
@@ -1119,3 +1139,75 @@ table.data-table tr:hover td { background: var(--primary-light); }
   color: #aaa;
   font-size: 12px;
 }
+
+/* 教师安排表（总览页） */
+.teacher-arr-card { padding: 12px; }
+:root { --ta-row-h: 28px; }
+.teacher-arrangement {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
+}
+.teacher-arr-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+  font-size: clamp(10px, 0.85vw, 13px);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.teacher-arr-table th,
+.teacher-arr-table td {
+  border: 1px solid var(--border);
+  padding: 2px 4px;
+  text-align: center;
+  height: var(--ta-row-h);
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+.teacher-arr-table th {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  white-space: nowrap;
+}
+.teacher-arr-table th:first-child,
+.teacher-arr-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 55px;
+}
+.teacher-arr-table th:nth-child(2),
+.teacher-arr-table td:nth-child(2) {
+  white-space: nowrap;
+  min-width: 60px;
+}
+.teacher-arr-table .ta-teacher { color: var(--text); }
+.teacher-arr-table .ta-headteacher { color: var(--primary-dark); font-weight: 600; }
+/* 聚光灯高亮 */
+.teacher-arr-table td.ta-spotlight-col,
+.teacher-arr-table td.ta-spotlight-row,
+.teacher-arr-table th.ta-spotlight-col,
+.teacher-arr-table th.ta-spotlight-row {
+  background: #e8f0fe !important;
+  color: var(--primary-dark) !important;
+}
+.teacher-arr-table td.ta-spotlight-col.ta-spotlight-row,
+.teacher-arr-table th.ta-spotlight-col.ta-spotlight-row {
+  background: #d0e0fc !important;
+  color: var(--primary-dark) !important;
+}
+/* 四角圆角 */
+.teacher-arr-table thead tr:first-child th:first-child { border-top-left-radius: 8px; }
+.teacher-arr-table thead tr:first-child th:last-child { border-top-right-radius: 8px; }
+.teacher-arr-table tbody tr:last-child td:first-child { border-bottom-left-radius: 8px; }
+.teacher-arr-table tbody tr:last-child td:last-child { border-bottom-right-radius: 8px; }

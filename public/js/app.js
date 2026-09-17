@@ -187,7 +187,7 @@ async function loadOverview() {
   const data = await api('/api/overview' + weekParam());
   if (!data.hasData) {
     $('#overview-cards').innerHTML = noDataHtml();
-    $('#overview-info').innerHTML = '';
+    $('#teacher-arrangement').innerHTML = '';
     return;
   }
   initWeekBar(data.weeks, data.week || currentWeek);
@@ -197,12 +197,8 @@ async function loadOverview() {
     ${statCard(data.teacherCount, '教师数', 'warning')}
     ${statCard(data.subjectCount, '科目数', 'primary')}
   `;
-  $('#overview-info').innerHTML = `
-    <p><strong>文件：</strong>${escapeHtml(data.filename)}</p>
-    <p><strong>上传时间：</strong>${new Date(data.uploadedAt).toLocaleString('zh-CN')}</p>
-    <p style="margin-top:10px"><strong>班级列表：</strong>${data.classes.map(escapeHtml).join('、')}</p>
-    <p style="margin-top:6px"><strong>教师列表：</strong>${data.teachers.map(escapeHtml).join('、')}</p>
-  `;
+  // 渲染教师安排表
+  renderTeacherArrangement(data.teacherMap || {}, data.teacherSubjects || []);
   // 绑定导出按钮（带周次参数）
   const weekLabel = currentWeek ? `（${currentWeek}）` : '';
   const exportClasses = $('#export-all-classes');
@@ -223,6 +219,94 @@ function statCard(num, label, type = 'primary') {
 
 function noDataHtml() {
   return `<div class="no-data"><div class="icon">📭</div><p>暂无课表数据，请先上传</p></div>`;
+}
+
+// 渲染教师安排表（从"3教师安排"工作表解析的 teacherMap）
+function renderTeacherArrangement(teacherMap, subjects) {
+  const container = $('#teacher-arrangement');
+  if (!container) return;
+  const codes = Object.keys(teacherMap).filter(c => c).sort();
+  if (!codes.length || !subjects.length) {
+    container.innerHTML = '<p class="hint">无教师安排数据</p>';
+    return;
+  }
+  // 表头：班级 | 班主任 | 各科目（保持原始顺序，不去重不排序）
+  let html = '<table class="teacher-arr-table"><thead><tr>';
+  html += '<th>班级</th><th>班主任</th>';
+  for (const s of subjects) html += `<th>${escapeHtml(s)}</th>`;
+  html += '</tr></thead><tbody>';
+  for (const code of codes) {
+    const info = teacherMap[code];
+    const display = /班$/.test(code) ? code : code + '班';
+    html += '<tr>';
+    html += `<td class="ta-class">${escapeHtml(display)}</td>`;
+    html += `<td class="ta-headteacher">${escapeHtml(info._班主任 || '')}</td>`;
+    for (const s of subjects) {
+      html += `<td class="ta-teacher">${escapeHtml(info[s] || '—')}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+  adjustTeacherArrHeight();
+  bindTeacherArrSpotlight();
+}
+
+// 教师安排表聚光灯（防看错行列）
+function bindTeacherArrSpotlight() {
+  const table = document.querySelector('.teacher-arr-table');
+  if (!table) return;
+  // 移除旧监听
+  table.removeEventListener('mouseover', table._spotlightOver);
+  table.removeEventListener('mouseleave', table._spotlightLeave);
+  table._spotlightOver = (e) => {
+    const td = e.target.closest('td, th');
+    if (!td) {
+      table.querySelectorAll('.ta-spotlight-col, .ta-spotlight-row').forEach(el => {
+        el.classList.remove('ta-spotlight-col', 'ta-spotlight-row');
+      });
+      return;
+    }
+    const cellIndex = td.cellIndex;
+    table.querySelectorAll('.ta-spotlight-col, .ta-spotlight-row').forEach(el => {
+      el.classList.remove('ta-spotlight-col', 'ta-spotlight-row');
+    });
+    // 高亮该列（含表头）
+    table.querySelectorAll('tr').forEach(tr => {
+      const cell = tr.cells[cellIndex];
+      if (cell) cell.classList.add('ta-spotlight-col');
+    });
+    // 高亮该行（含表头）
+    const tr = td.parentElement;
+    tr.querySelectorAll('td, th').forEach(c => c.classList.add('ta-spotlight-row'));
+  };
+  table._spotlightLeave = () => {
+    table.querySelectorAll('.ta-spotlight-col, .ta-spotlight-row').forEach(el => {
+      el.classList.remove('ta-spotlight-col', 'ta-spotlight-row');
+    });
+  };
+  table.addEventListener('mouseover', table._spotlightOver);
+  table.addEventListener('mouseleave', table._spotlightLeave);
+}
+
+// 自适应教师安排表行高：根据可用高度和行数计算，确保全部展示
+let _taAdjustTimer = null;
+function adjustTeacherArrHeight() {
+  if (_taAdjustTimer) clearTimeout(_taAdjustTimer);
+  _taAdjustTimer = setTimeout(() => {
+    const table = document.querySelector('.teacher-arr-table');
+    if (!table) return;
+    const container = document.querySelector('.teacher-arr-card');
+    if (!container) return;
+    // 可用高度 = 视口高度 - 已占用部分（标题+统计卡片+导出按钮+padding）
+    const rect = container.getBoundingClientRect();
+    const available = window.innerHeight - rect.top - 120; // 留 120px 给导出按钮和底部间距
+    const rows = table.rows.length;
+    if (rows <= 0) return;
+    let h = Math.floor(available / rows);
+    h = Math.max(14, Math.min(h, 50)); // 限制 14~50px
+    document.documentElement.style.setProperty('--ta-row-h', h + 'px');
+  }, 100);
 }
 
 // ===== 班级课表 =====
@@ -300,14 +384,14 @@ function adjustRowHeight() {
 let _resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(_resizeTimer);
-  _resizeTimer = setTimeout(adjustRowHeight, 100);
+  _resizeTimer = setTimeout(() => { adjustRowHeight(); adjustTeacherArrHeight(); }, 100);
 });
 
 // 监听视觉视口变化（捕获浏览器缩放）
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', () => {
     clearTimeout(_resizeTimer);
-    _resizeTimer = setTimeout(adjustRowHeight, 100);
+    _resizeTimer = setTimeout(() => { adjustRowHeight(); adjustTeacherArrHeight(); }, 100);
   });
 }
 
@@ -1335,6 +1419,7 @@ async function onSwapTeacherSelected(teacherName) {
   const data = await api(`/api/teacher/${encodeURIComponent(teacherName)}` + weekParam());
   if (data.error) { toast(data.error, 'error'); return; }
   swapState.periodLabels = data.periodLabels;
+  swapState.teacherEntries = data.entries; // 保存教师课表条目，用于选中源课程后合并
   // 教师模式下，主网格显示教师课表，但调课仍是在班级内对调
   // 用户在教师课表中选中某节课后，系统找到该课所属班级，然后计算该班内的可对调课程
   $('#swap-grid-title').textContent = `${teacherName} 课表`;
@@ -1549,9 +1634,15 @@ document.addEventListener('click', () => {
 async function selectSource(td, weekday, period, half) {
   // 如果点击了重课的某一半，使用该半的 data 属性
   const className = half ? (half.dataset.class || '') : (td.dataset.class || '');
-  const teacher = half ? (half.dataset.teacher || '') : (td.dataset.teacher || '');
+  const cellTeacher = half ? (half.dataset.teacher || '') : (td.dataset.teacher || '');
   const subject = half ? (half.dataset.subject || '') : (td.dataset.subject || '');
+  // 教师模式下，源课程只能是当前调课教师的课
+  const teacher = swapState.mode === 'teacher' ? swapState.teacher : cellTeacher;
   if (!teacher) { toast('该课程无教师，不可调', 'error'); return; }
+  if (swapState.mode === 'teacher' && cellTeacher && cellTeacher !== swapState.teacher) {
+    toast(`只能选择${swapState.teacher}的课作为源课程`, 'error');
+    return;
+  }
   swapState.source = { class: className, weekday, period, teacher, subject, periodLabel: swapState.periodLabels ? (swapState.periodLabels[period] || `第${period}节`) : `第${period}节` };
   swapState.target = null;
   $('#swap-execute-btn').disabled = true;
@@ -1560,12 +1651,30 @@ async function selectSource(td, weekday, period, half) {
   const data = await api(url);
   if (data.error) { toast(data.error, 'error'); resetSwapSelection(); return; }
   swapState.candidates = data.candidates || [];
-  // 切换为班级课表视图，让所有单元格显示科目和教师
-  const classData = await api(`/api/class/${encodeURIComponent(className)}` + weekParam());
-  if (!classData.error) {
-    swapState.periodLabels = classData.periodLabels;
-    $('#swap-grid-title').textContent = `${className} 课表（调课中：${teacher}）`;
-    $('#swap-grid').innerHTML = renderSwapGrid(classData.entries, 'class', classData.periodLabels, null, null, teacher);
+  if (swapState.mode === 'teacher') {
+    // 教师模式：主课表保持显示教师课表，合并班级课表数据
+    // 樊启云已有的课用橙色文字显示（占用时间段，不可调）
+    // 其他可调位置显示班级内其他课程信息（科目+教师）
+    const classData = await api(`/api/class/${encodeURIComponent(className)}` + weekParam());
+    if (!classData.error) {
+      swapState.periodLabels = classData.periodLabels;
+      // 合并：教师课表条目 + 班级课表中不属于该教师的条目
+      // 对于教师有课的时间段，只保留教师的课（橙色），不显示班级内其他课程
+      const teacherEntries = swapState.teacherEntries || [];
+      const teacherKeys = new Set(teacherEntries.map(e => `${e.weekday}|${e.period}`));
+      const otherEntries = classData.entries.filter(e => e.teacher !== teacher && !teacherKeys.has(`${e.weekday}|${e.period}`));
+      const mergedEntries = [...teacherEntries, ...otherEntries];
+      $('#swap-grid-title').textContent = `${teacher} 课表（调课中：${className}）`;
+      $('#swap-grid').innerHTML = renderSwapGrid(mergedEntries, 'class', classData.periodLabels, null, null, teacher);
+    }
+  } else {
+    // 班级模式：切换为班级课表视图
+    const classData = await api(`/api/class/${encodeURIComponent(className)}` + weekParam());
+    if (!classData.error) {
+      swapState.periodLabels = classData.periodLabels;
+      $('#swap-grid-title').textContent = `${className} 课表（调课中：${teacher}）`;
+      $('#swap-grid').innerHTML = renderSwapGrid(classData.entries, 'class', classData.periodLabels, null, null, teacher);
+    }
   }
   renderSwapGridState();
   // 加载源教师参考课表

@@ -112,6 +112,15 @@ function computeSwapCandidates(entries, source, weekType, meetings, teacherMap, 
   for (const target of sameClassEntries) {
     // 跳过源课程自身
     if (target.weekday === sourceEntry.weekday && target.period === sourceEntry.period) continue;
+    // 跳过同班级同学科的课程（没有调换意义）
+    if (target.class === sourceEntry.class && target.subject === sourceEntry.subject && target.teacher === sourceEntry.teacher) {
+      candidates.push({
+        class: target.class, teacher: target.teacher, subject: target.subject,
+        weekday: target.weekday, period: target.period, periodLabel: target.periodLabel,
+        swappable: false, rejectReason: '同班级同学科无需调换'
+      });
+      continue;
+    }
 
     const result = checkSwappable(entries, sourceEntry, target, weekType, meetings, teacherMeetings, allEntries || entries);
     candidates.push({

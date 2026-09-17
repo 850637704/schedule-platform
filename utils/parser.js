@@ -634,4 +634,4 @@ function parseWorkbook(filePath) {
   return { entries: dedup, sheets: sheetsInfo, weeks: ['通用'], swapRecords: [] };
 }
 
-module.exports = { parseWorkbook, parseWeekday, parsePeriod, parseCellContent, parseMeetingSheet, parseLeaveSheet, parseSwapRecordSheet, MEETING_SUBJECT_MAP };
+module.exports = { parseWorkbook, parseWeekday, parsePeriod, parseCellContent, parseMeetingSheet, parseLeaveSheet, parseSwapRecordSheet, MEETING_SUBJECT_MAP, buildTeacherMap };
