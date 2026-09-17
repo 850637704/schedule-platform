@@ -488,7 +488,22 @@ function parseSchoolFormat(wb) {
   if (swapRecords.length) {
     sheetsInfo.push({ name: swapRecordSheetName, format: 'swap-records', count: swapRecords.length });
   }
-  return { entries: allEntries, sheets: sheetsInfo, weeks, teacherSubjects, teacherMap, meetings, leaves, swapRecords };
+  // 解析「8作息时间」工作表（优先"8作息时间表"，排除空表）
+  const schedule8Candidates = names.filter(n => /作息时间/.test(n));
+  let schedule8 = {};
+  let schedule8SheetName = null;
+  for (const n of schedule8Candidates) {
+    const parsed = parseSchedule8Sheet(wb.Sheets[n]);
+    if (Object.keys(parsed).length) {
+      schedule8 = parsed;
+      schedule8SheetName = n;
+      break;
+    }
+  }
+  if (schedule8SheetName) {
+    sheetsInfo.push({ name: schedule8SheetName, format: 'schedule8', count: Object.keys(schedule8).length });
+  }
+  return { entries: allEntries, sheets: sheetsInfo, weeks, teacherSubjects, teacherMap, meetings, leaves, swapRecords, schedule8 };
 }
 
 // ========== 旧格式兼容（列表 / 简单网格） ==========
@@ -634,4 +649,26 @@ function parseWorkbook(filePath) {
   return { entries: dedup, sheets: sheetsInfo, weeks: ['通用'], swapRecords: [] };
 }
 
-module.exports = { parseWorkbook, parseWeekday, parsePeriod, parseCellContent, parseMeetingSheet, parseLeaveSheet, parseSwapRecordSheet, MEETING_SUBJECT_MAP, buildTeacherMap };
+// ========== 8作息时间表解析 ==========
+// 返回 { '班级名': { '早自习': '6:45-7:10', '第1节': '8:00-8:45', ... } }
+function parseSchedule8Sheet(sheet) {
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blank: false });
+  if (!rows.length) return {};
+  const headers = rows[0].map(h => String(h || '').trim());
+  const result = {};
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const className = String(row[0] || '').trim();
+    if (!className) continue;
+    const times = {};
+    for (let j = 1; j < headers.length && j < row.length; j++) {
+      const label = headers[j];
+      const val = String(row[j] || '').trim();
+      if (val) times[label] = val;
+    }
+    result[className] = times;
+  }
+  return result;
+}
+
+module.exports = { parseWorkbook, parseWeekday, parsePeriod, parseCellContent, parseMeetingSheet, parseLeaveSheet, parseSwapRecordSheet, parseSchedule8Sheet, MEETING_SUBJECT_MAP, buildTeacherMap };

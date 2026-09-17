@@ -230,7 +230,7 @@ app.get('/api/security-question', (req, res) => {
 app.post('/api/upload', requireLogin, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '请上传文件' });
   try {
-    const { entries, sheets, weeks, teacherMap, teacherSubjects, meetings, leaves, swapRecords } = parseWorkbook(req.file.path);
+    const { entries, sheets, weeks, teacherMap, teacherSubjects, meetings, leaves, swapRecords, schedule8 } = parseWorkbook(req.file.path);
     if (!entries.length) {
       return res.status(400).json({ error: '未能从文件中解析出课表数据，请检查文件格式。需要包含「总课表」和「教师安排」工作表。' });
     }
@@ -246,7 +246,8 @@ app.post('/api/upload', requireLogin, upload.single('file'), (req, res) => {
       teacherSubjects: teacherSubjects || [],
       meetings: meetings || [],
       leaves: leaves || [],
-      swapRecords: swapRecords || []
+      swapRecords: swapRecords || [],
+      schedule8: schedule8 || {}
     };
     saveScheduleData(req, data);
     // 保存上传的文件作为模板（覆盖旧的）
@@ -364,7 +365,9 @@ app.get('/api/class/:className', (req, res) => {
   for (const e of entries) {
     if (e.periodLabel && !(e.period in periodLabels)) periodLabels[e.period] = e.periodLabel;
   }
-  res.json({ class: className, entries: filtered, count: filtered.length, teacherConfig, periodLabels });
+  // 作息时间（8作息时间表）
+  const schedule8 = data.schedule8 && data.schedule8[className] ? data.schedule8[className] : {};
+  res.json({ class: className, entries: filtered, count: filtered.length, teacherConfig, periodLabels, schedule8 });
 });
 
 // 获取教师课表
@@ -517,7 +520,13 @@ app.get('/api/teacher/:teacherName', (req, res) => {
   // 按冲突严重性排序：重课(schedule) > 会议(meeting) > 调休(leave)
   const severityOrder = { schedule: 0, meeting: 1, leave: 2 };
   conflicts.sort((a, b) => (severityOrder[a.type] ?? 9) - (severityOrder[b.type] ?? 9));
-  res.json({ teacher: teacherName, entries: filtered, count: filtered.length, periodLabels, meetingConflicts, teacherMeetings, leaveConflictKeys: [...leaveConflictKeys], conflicts });
+  // 作息时间（8作息时间表）- 返回该教师所教班级的作息时间
+  const teacherClasses = [...new Set(filtered.map(e => e.class))];
+  const schedule8 = {};
+  for (const cls of teacherClasses) {
+    if (data.schedule8 && data.schedule8[cls]) schedule8[cls] = data.schedule8[cls];
+  }
+  res.json({ teacher: teacherName, entries: filtered, count: filtered.length, periodLabels, meetingConflicts, teacherMeetings, leaveConflictKeys: [...leaveConflictKeys], conflicts, schedule8 });
 });
 
 // 教师课时统计
@@ -585,7 +594,7 @@ app.get('/api/export/class/:className', async (req, res) => {
     const className = decodeURIComponent(req.params.className);
     const { entries, week } = filterByWeek(data, req.query.week);
     const globalPeriodLabels = getPeriodLabels(entries);
-    const buffer = await exportSingleClass(entries, className, data.teacherMap, globalPeriodLabels);
+    const buffer = await exportSingleClass(entries, className, data.teacherMap, globalPeriodLabels, data.schedule8);
     setDownloadHeader(res, `${className}课表-${week}.xlsx`);
     res.send(Buffer.from(buffer));
   } catch (err) {
@@ -601,7 +610,7 @@ app.get('/api/export/teacher/:teacherName', async (req, res) => {
     const teacherName = decodeURIComponent(req.params.teacherName);
     const { entries, week } = filterByWeek(data, req.query.week);
     const globalPeriodLabels = getPeriodLabels(entries);
-    const buffer = await exportSingleTeacher(entries, teacherName, data.meetings, data.teacherMap, data.leaves, globalPeriodLabels, week);
+    const buffer = await exportSingleTeacher(entries, teacherName, data.meetings, data.teacherMap, data.leaves, globalPeriodLabels, week, data.schedule8);
     setDownloadHeader(res, `${teacherName}课表-${week}.xlsx`);
     res.send(Buffer.from(buffer));
   } catch (err) {

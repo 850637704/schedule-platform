@@ -132,15 +132,22 @@ async function checkData() {
 const dropZone = $('#drop-zone');
 const fileInput = $('#file-input');
 
-$('#select-btn').addEventListener('click', () => fileInput.click());
+$('#select-btn').addEventListener('click', () => {
+  if (!requireAuth('upload')) return;
+  fileInput.click();
+});
 dropZone.addEventListener('click', (e) => {
-  if (e.target.tagName !== 'BUTTON') fileInput.click();
+  if (e.target.tagName !== 'BUTTON') {
+    if (!requireAuth('upload')) return;
+    fileInput.click();
+  }
 });
 dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', (e) => {
   e.preventDefault();
   dropZone.classList.remove('dragover');
+  if (!requireAuth('upload')) return;
   if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
 });
 fileInput.addEventListener('change', () => {
@@ -252,9 +259,9 @@ function renderTeacherArrangement(teacherMap, subjects) {
   bindTeacherArrSpotlight();
 }
 
-// 教师安排表聚光灯（防看错行列）
-function bindTeacherArrSpotlight() {
-  const table = document.querySelector('.teacher-arr-table');
+// 通用聚光灯（防看错行列）：适用于教师安排表、班级课表、教师课表
+function bindSpotlight(tableSelector, colCls, rowCls) {
+  const table = document.querySelector(tableSelector);
   if (!table) return;
   // 移除旧监听
   table.removeEventListener('mouseover', table._spotlightOver);
@@ -262,31 +269,46 @@ function bindTeacherArrSpotlight() {
   table._spotlightOver = (e) => {
     const td = e.target.closest('td, th');
     if (!td) {
-      table.querySelectorAll('.ta-spotlight-col, .ta-spotlight-row').forEach(el => {
-        el.classList.remove('ta-spotlight-col', 'ta-spotlight-row');
+      table.querySelectorAll('.' + colCls + ', .' + rowCls).forEach(el => {
+        el.classList.remove(colCls, rowCls);
       });
       return;
     }
     const cellIndex = td.cellIndex;
-    table.querySelectorAll('.ta-spotlight-col, .ta-spotlight-row').forEach(el => {
-      el.classList.remove('ta-spotlight-col', 'ta-spotlight-row');
+    table.querySelectorAll('.' + colCls + ', .' + rowCls).forEach(el => {
+      el.classList.remove(colCls, rowCls);
     });
     // 高亮该列（含表头）
     table.querySelectorAll('tr').forEach(tr => {
       const cell = tr.cells[cellIndex];
-      if (cell) cell.classList.add('ta-spotlight-col');
+      if (cell) cell.classList.add(colCls);
     });
     // 高亮该行（含表头）
     const tr = td.parentElement;
-    tr.querySelectorAll('td, th').forEach(c => c.classList.add('ta-spotlight-row'));
+    tr.querySelectorAll('td, th').forEach(c => c.classList.add(rowCls));
   };
   table._spotlightLeave = () => {
-    table.querySelectorAll('.ta-spotlight-col, .ta-spotlight-row').forEach(el => {
-      el.classList.remove('ta-spotlight-col', 'ta-spotlight-row');
+    table.querySelectorAll('.' + colCls + ', .' + rowCls).forEach(el => {
+      el.classList.remove(colCls, rowCls);
     });
   };
   table.addEventListener('mouseover', table._spotlightOver);
   table.addEventListener('mouseleave', table._spotlightLeave);
+}
+
+// 教师安排表聚光灯（防看错行列）
+function bindTeacherArrSpotlight() {
+  bindSpotlight('.teacher-arr-table', 'ta-spotlight-col', 'ta-spotlight-row');
+}
+
+// 班级课表聚光灯
+function bindClassScheduleSpotlight() {
+  bindSpotlight('#class-grid .schedule-grid', 'sc-spotlight-col', 'sc-spotlight-row');
+}
+
+// 教师课表聚光灯
+function bindTeacherScheduleSpotlight() {
+  bindSpotlight('#teacher-grid .schedule-grid', 'sc-spotlight-col', 'sc-spotlight-row');
 }
 
 // 自适应教师安排表行高：根据可用高度和行数计算，确保全部展示
@@ -344,9 +366,11 @@ async function loadClassSchedule(className) {
   // 渲染教师配置表
   renderTeacherConfig(className, data.teacherConfig);
   // 渲染课表网格（使用全局节次标签）
-  $('#class-grid').innerHTML = renderScheduleGrid(data.entries, 'class', data.periodLabels);
+  $('#class-grid').innerHTML = renderScheduleGrid(data.entries, 'class', data.periodLabels, null, null, null, data.schedule8);
   // 根据视口高度自适应行高
   adjustRowHeight();
+  // 聚光灯
+  bindClassScheduleSpotlight();
 }
 
 // 根据浏览器视口高度，动态计算行高，使任课教师表和课表都能完整展示
@@ -408,16 +432,22 @@ function renderTeacherConfig(className, config) {
     if (subj === '自习' || subj === '自习课') allItems.push({ subj, teacher: headTeacher || teacher || '' });
     else allItems.push({ subj, teacher: teacher || '' });
   }
-  const COLS = 8; // 每行8个科目
-  const colPct = 100 / COLS; // 8列均分 100% 宽
+  const COLS = 7; // 每行7个科目（与课表7天列对齐）
+  const ghostPct = 10; // 占位列10%（与课表节次列同宽）
+  const colPct = (100 - ghostPct) / COLS; // 7列均分剩余90%
   let cg = '<colgroup>';
+  cg += `<col style="width:${ghostPct.toFixed(4)}%">`; // 占位列
   for (let k = 0; k < COLS; k++) cg += `<col style="width:${colPct.toFixed(4)}%">`;
   cg += '</colgroup>';
   let html = '<table class="teacher-config-table">' + cg + '<tbody>';
   for (let i = 0; i < allItems.length; i += COLS) {
     const chunk = allItems.slice(i, i + COLS);
+    const isFirstChunk = (i === 0);
     // 科目行（tr1）
     html += '<tr class="tc-row-subj">';
+    if (isFirstChunk) {
+      html += `<td class="tc-td-ghost" rowspan="${Math.ceil(allItems.length / COLS) * 2}"><div class="tc-ghost-class">${escapeHtml(className)}</div><div class="tc-ghost-label">任课教师表</div></td>`;
+    }
     for (const item of chunk) html += `<td class="tc-td-subj">${item.subj ? escapeHtml(item.subj) : '&nbsp;'}</td>`;
     for (let j = chunk.length; j < COLS; j++) html += '<td class="tc-td-empty">&nbsp;</td>';
     html += '</tr>';
@@ -463,8 +493,9 @@ async function loadTeacherList() {
 async function loadTeacherSchedule(teacherName) {
   const data = await api(`/api/teacher/${encodeURIComponent(teacherName)}` + weekParam());
   if (data.error) { toast(data.error, 'error'); return; }
-  $('#teacher-grid').innerHTML = renderScheduleGrid(data.entries, 'teacher', data.periodLabels, data.meetingConflicts, data.teacherMeetings, data.leaveConflictKeys);
+  $('#teacher-grid').innerHTML = renderScheduleGrid(data.entries, 'teacher', data.periodLabels, data.meetingConflicts, data.teacherMeetings, data.leaveConflictKeys, data.schedule8);
   renderTeacherConflicts(data.conflicts || []);
+  bindTeacherScheduleSpotlight();
 }
 
 // 渲染教师课表下方的冲突提示（颜色与课表高亮一致）
@@ -486,7 +517,7 @@ function renderTeacherConflicts(conflicts) {
 }
 
 // ===== 课表网格渲染（自适应星期数 + 节次标签） =====
-function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts, teacherMeetings, leaveConflictKeys) {
+function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts, teacherMeetings, leaveConflictKeys, schedule8) {
   if (!entries.length) return noDataHtml();
   // grid: period -> Map(weekday -> entry[])  同一节课可能有多个条目（教师冲突）
   const grid = new Map();
@@ -542,7 +573,9 @@ function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts,
   html += '</tr></thead><tbody>';
   for (let p = 1; p <= maxPeriod; p++) {
     const label = periodLabels.get(p) || `第${p}节`;
-    html += `<tr><td>${escapeHtml(label)}</td>`;
+    const timeStr = schedule8 && schedule8[label] ? schedule8[label] : '';
+    const timeHtml = timeStr ? `<div class="period-time">${escapeHtml(timeStr)}</div>` : '';
+    html += `<tr><td>${escapeHtml(label)}${timeHtml}</td>`;
     for (const wd of dayCols) {
       const arr = (grid.get(p) || new Map()).get(wd);
       if (arr && arr.length) {
@@ -573,6 +606,10 @@ function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts,
             cell += `<div class="cell-subject">${escapeHtml(e.subject || '')}</div>`;
             if (e.class) cell += `<div class="cell-class">${escapeHtml(e.class)}</div>`;
             if (e.location) cell += `<div class="cell-location">@${escapeHtml(e.location)}</div>`;
+            // 时段
+            const cls = e.class;
+            const time = schedule8 && schedule8[cls] && schedule8[cls][label] ? schedule8[cls][label] : '';
+            if (time) cell += `<div class="cell-time">${escapeHtml(time)}</div>`;
             cell += `</div>`;
           }
           cell += '</div>';
@@ -584,6 +621,12 @@ function renderScheduleGrid(entries, mode, globalPeriodLabels, meetingConflicts,
             if (classes.length) cell += `<div class="cell-class">${escapeHtml(classes.join(' / '))}</div>`;
           }
           if (unique[0].location) cell += `<div class="cell-location">@${escapeHtml(unique[0].location)}</div>`;
+          // 时段（教师模式：根据班级+节次获取）
+          if (mode === 'teacher') {
+            const cls = unique[0].class;
+            const time = schedule8 && schedule8[cls] && schedule8[cls][label] ? schedule8[cls][label] : '';
+            if (time) cell += `<div class="cell-time">${escapeHtml(time)}</div>`;
+          }
         }
         html += `<td class="${cellClass}" data-weekday="${wd}" data-period="${p}">${cell}</td>`;
       } else {

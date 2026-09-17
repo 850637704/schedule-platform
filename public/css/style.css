@@ -587,9 +587,9 @@ table.data-table tr:hover td { background: var(--primary-light); }
   background: var(--card-bg);
   table-layout: fixed;
 }
-/* 任课教师表每一行高度与课表行一致 */
+/* 任课教师表每一行高度：课表行高的2/3 */
 .teacher-config-table tr {
-  height: var(--row-h);
+  height: calc(var(--row-h) * 2 / 3);
 }
 /* 基础边框（统一 1px） */
 .teacher-config-table td {
@@ -603,8 +603,21 @@ table.data-table tr:hover td { background: var(--primary-light); }
 /* 左侧占位列（占10%，和课表节次列同宽）：无内容，风格=课表的节次列背景色(蓝淡) */
 .teacher-config-table .tc-td-ghost {
   background: var(--primary-light);
-  color: transparent;
-  user-select: none;
+  color: var(--primary-dark);
+  vertical-align: middle;
+  text-align: center;
+}
+.teacher-config-table .tc-ghost-class {
+  font-weight: 700;
+  font-size: clamp(14px, 1.2vw, 18px);
+  white-space: nowrap;
+}
+.teacher-config-table .tc-ghost-label {
+  font-weight: 600;
+  font-size: clamp(10px, 0.85vw, 13px);
+  color: var(--primary);
+  margin-top: 4px;
+  white-space: nowrap;
 }
 /* 科目前行 td：蓝底白字（与课表表头th同色）；字号与课表 cell-subject 一致 */
 .teacher-config-table .tc-td-subj {
@@ -1193,7 +1206,7 @@ table.data-table tr:hover td { background: var(--primary-light); }
 }
 .teacher-arr-table .ta-teacher { color: var(--text); }
 .teacher-arr-table .ta-headteacher { color: var(--primary-dark); font-weight: 600; }
-/* 聚光灯高亮 */
+/* 聚光灯高亮 - 教师安排表 */
 .teacher-arr-table td.ta-spotlight-col,
 .teacher-arr-table td.ta-spotlight-row,
 .teacher-arr-table th.ta-spotlight-col,
@@ -1203,6 +1216,36 @@ table.data-table tr:hover td { background: var(--primary-light); }
 }
 .teacher-arr-table td.ta-spotlight-col.ta-spotlight-row,
 .teacher-arr-table th.ta-spotlight-col.ta-spotlight-row {
+  background: #d0e0fc !important;
+  color: var(--primary-dark) !important;
+}
+/* 节次时间（8作息时间表） */
+.schedule-grid .period-time {
+  font-size: clamp(9px, 0.7vw, 11px);
+  color: var(--text-light);
+  margin-top: 2px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+/* 教师课表单元格内的时段 */
+.schedule-grid .cell-time {
+  font-size: clamp(8px, 0.65vw, 10px);
+  color: var(--text-light);
+  margin-top: 2px;
+  font-weight: 400;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+/* 聚光灯高亮 - 班级/教师课表 */
+.schedule-grid td.sc-spotlight-col,
+.schedule-grid td.sc-spotlight-row,
+.schedule-grid th.sc-spotlight-col,
+.schedule-grid th.sc-spotlight-row {
+  background: #e8f0fe !important;
+  color: var(--primary-dark) !important;
+}
+.schedule-grid td.sc-spotlight-col.sc-spotlight-row,
+.schedule-grid th.sc-spotlight-col.sc-spotlight-row {
   background: #d0e0fc !important;
   color: var(--primary-dark) !important;
 }

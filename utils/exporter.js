@@ -56,7 +56,7 @@ function formatClassEntry(arr) {
 // meetingConflictKeys: Set<"weekday|period"> 会议冲突单元格（有课+有会议）
 // leaveConflictKeys: Set<"weekday|period"> 调休冲突单元格（调休日被排课）
 // teacherConfig: {subject: teacher, _班主任: name} 班级任课教师配置（仅班级模式，显示在课表上方）
-function addScheduleSheet(wb, title, entries, mode, teacherMeetings, globalPeriodLabels, meetingConflictKeys, leaveConflictKeys, teacherConfig) {
+function addScheduleSheet(wb, title, entries, mode, teacherMeetings, globalPeriodLabels, meetingConflictKeys, leaveConflictKeys, teacherConfig, schedule8) {
   const sheet = wb.addWorksheet(title);
   const gridResult = entriesToGrid(entries);
   const { grid, periodLabels } = gridResult;
@@ -85,11 +85,19 @@ function addScheduleSheet(wb, title, entries, mode, teacherMeetings, globalPerio
       if (subj === '自习' || subj === '自习课') allItems.push({ subj, teacher: headTeacher || teacher || '' });
       else allItems.push({ subj, teacher: teacher || '' });
     }
-    const COLS = 8; // 每行8列，与课表列数一致
+    const COLS = 7; // 每行7列（与课表7天列对齐）
+    const totalChunks = Math.ceil(allItems.length / COLS);
     for (let i = 0; i < allItems.length; i += COLS) {
       const chunk = allItems.slice(i, i + COLS);
+      const isFirstChunk = (i === 0);
       // 科目行（蓝底白字）
       const subjRow = [];
+      if (isFirstChunk) {
+        // 占位列：班级名 + "任课教师表"
+        subjRow.push(`${title}\n任课教师表`);
+      } else {
+        subjRow.push('');
+      }
       for (const item of chunk) subjRow.push(item.subj || '');
       for (let j = chunk.length; j < COLS; j++) subjRow.push('');
       sheet.addRow(subjRow);
@@ -102,6 +110,7 @@ function addScheduleSheet(wb, title, entries, mode, teacherMeetings, globalPerio
       currentRow++;
       // 教师行（浅蓝底）
       const teaRow = [];
+      teaRow.push(''); // 占位列
       for (const item of chunk) teaRow.push(item.teacher || '');
       for (let j = chunk.length; j < COLS; j++) teaRow.push('');
       sheet.addRow(teaRow);
@@ -114,6 +123,18 @@ function addScheduleSheet(wb, title, entries, mode, teacherMeetings, globalPerio
       currentRow++;
       teacherConfigRowCount += 2;
     }
+    // 合并占位列
+    if (teacherConfigRowCount > 0) {
+      sheet.mergeCells(1, 1, teacherConfigRowCount, 1);
+      const ghostCell = sheet.getCell(1, 1);
+      ghostCell.font = { bold: true, size: 13, color: { argb: 'FF2F5496' } };
+      ghostCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      ghostCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+    }
+    // 任课教师表与课表之间加一空行
+    sheet.addRow([]);
+    sheet.getRow(currentRow).height = 8;
+    currentRow++;
   }
 
   // ===== 课表表头 =====
@@ -139,13 +160,35 @@ function addScheduleSheet(wb, title, entries, mode, teacherMeetings, globalPerio
   const meetingConflictSet = new Set(meetingConflictKeys || []);
   const leaveConflictSet = new Set(leaveConflictKeys || []);
   const fmt = mode === 'teacher' ? formatTeacherEntry : formatClassEntry;
+  // 获取时间段：用节次标签（如"第1节"、"早自习"）作为key
+  function getTimeStr(className, periodLabel) {
+    if (!schedule8 || !className || !periodLabel) return '';
+    const classSchedule = schedule8[className] || schedule8[className.replace(/班$/, '')];
+    if (!classSchedule) return '';
+    return classSchedule[periodLabel] || '';
+  }
   for (let p = 1; p <= maxPeriod; p++) {
     const label = periodLabels.get(p) || `第${p}节`;
-    const row = [label];
+    // 班级模式：节次列显示节次+时间段
+    let firstCol = label;
+    if (mode === 'class') {
+      const timeStr = getTimeStr(title, label);
+      if (timeStr) firstCol = `${label}\n${timeStr}`;
+    }
+    const row = [firstCol];
     for (const wd of dayCols) {
       const arr = (grid.get(p) || new Map()).get(wd);
       if (arr && arr.length) {
-        row.push(fmt(arr));
+        let content = fmt(arr);
+        // 教师模式：在内容下方添加时间段
+        if (mode === 'teacher') {
+          const cls = arr[0].class;
+          if (cls) {
+            const timeStr = getTimeStr(cls, label);
+            if (timeStr) content = `${content}\n${timeStr}`;
+          }
+        }
+        row.push(content);
       } else {
         // 空单元格：教师模式下若有会议显示会议名（水印），否则显示 —
         const mName = mode === 'teacher' ? meetingMap.get(`${wd}|${p}`) : null;
@@ -328,25 +371,25 @@ async function exportTeacherSchedules(entries, meetings, teacherMap, leaves, glo
 }
 
 // 导出单个班级课表
-async function exportSingleClass(entries, className, teacherMap, globalPeriodLabels) {
+async function exportSingleClass(entries, className, teacherMap, globalPeriodLabels, schedule8) {
   const wb = new ExcelJS.Workbook();
   wb.creator = '课表管理平台';
   const classEntries = entries.filter(e => e.class === className);
   const normCls = className.replace(/班$/, '');
   const teacherConfig = (teacherMap && teacherMap[normCls]) || {};
-  addScheduleSheet(wb, className, classEntries, 'class', null, globalPeriodLabels, null, null, teacherConfig);
+  addScheduleSheet(wb, className, classEntries, 'class', null, globalPeriodLabels, null, null, teacherConfig, schedule8);
   const buffer = await wb.xlsx.writeBuffer();
   return buffer;
 }
 
 // 导出单个教师课表
-async function exportSingleTeacher(entries, teacherName, meetings, teacherMap, leaves, globalPeriodLabels, weekType) {
+async function exportSingleTeacher(entries, teacherName, meetings, teacherMap, leaves, globalPeriodLabels, weekType, schedule8) {
   const wb = new ExcelJS.Workbook();
   wb.creator = '课表管理平台';
   const teacherEntries = entries.filter(e => e.teacher === teacherName);
   const teacherMeetings = getTeacherMeetings(entries, meetings, teacherMap, teacherName);
   const { meetingConflictKeys, leaveConflictKeys } = getTeacherConflictKeys(entries, meetings, teacherMap, leaves, teacherName, weekType);
-  addScheduleSheet(wb, teacherName, teacherEntries, 'teacher', teacherMeetings, globalPeriodLabels, meetingConflictKeys, leaveConflictKeys);
+  addScheduleSheet(wb, teacherName, teacherEntries, 'teacher', teacherMeetings, globalPeriodLabels, meetingConflictKeys, leaveConflictKeys, null, schedule8);
   const buffer = await wb.xlsx.writeBuffer();
   return buffer;
 }
