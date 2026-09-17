@@ -1926,7 +1926,7 @@ async function executeSwapAction() {
       })
     });
     if (result.error) { toast(result.error, 'error'); return; }
-    toast('对调成功', 'success');
+    toast('对调成功' + (result.conflicts && result.conflicts.total > 0 ? `，检测到 ${result.conflicts.total} 个冲突` : ''), result.conflicts && result.conflicts.total > 0 ? 'warning' : 'success');
     swapState.canUndo = true;
     $('#swap-undo-btn').disabled = false;
     // 刷新调课网格
@@ -1948,6 +1948,12 @@ async function executeSwapAction() {
     if (lastTeacherSel && activeView === 'teacher') loadTeacherSchedule(lastTeacherSel);
     // 刷新调课记录
     loadSwapRecords();
+    // 自动刷新冲突分析（使用调课返回的最新冲突数据）
+    if (result.conflicts) {
+      analysisData = result.conflicts;
+      renderAnalysisSummary(analysisData);
+      renderAnalysisDetail(analysisData, activeFilter);
+    }
   } finally {
     btn.disabled = true;
     btn.textContent = '执行调整';
@@ -1962,7 +1968,7 @@ async function undoSwapAction() {
     body: JSON.stringify({ week: currentWeek })
   });
   if (result.error) { toast(result.error, 'error'); return; }
-  toast('已撤销', 'success');
+  toast('已撤销' + (result.conflicts && result.conflicts.total > 0 ? `，检测到 ${result.conflicts.total} 个冲突` : ''), result.conflicts && result.conflicts.total > 0 ? 'warning' : 'success');
   swapState.canUndo = false;
   $('#swap-undo-btn').disabled = true;
   // 刷新调课记录列表
@@ -1980,6 +1986,12 @@ async function undoSwapAction() {
   }
   resetSwapSelection();
   if (lastTeacherSel && activeView === 'teacher') loadTeacherSchedule(lastTeacherSel);
+  // 自动刷新冲突分析（使用撤销返回的最新冲突数据）
+  if (result.conflicts) {
+    analysisData = result.conflicts;
+    renderAnalysisSummary(analysisData);
+    renderAnalysisDetail(analysisData, activeFilter);
+  }
 }
 
 function resetSwapSelection() {
