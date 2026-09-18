@@ -866,7 +866,7 @@ app.get('/api/swap/candidates', (req, res) => {
   const weekType = week || (data.weeks || ['通用'])[0];
   const result = computeSwapCandidates(entries, {
     class: className, weekday: Number(weekday), period: Number(period), weekType
-  }, weekType, data.meetings, data.teacherMap, data.entries);
+  }, weekType, data.meetings, data.teacherMap, data.entries, data.leaves);
   if (result.error) return res.status(400).json({ error: result.error });
   res.json(result);
 });
@@ -887,7 +887,7 @@ app.post('/api/swap/execute', requireLogin, async (req, res) => {
     target: { ...target }
   });
   try {
-    executeSwap(data.entries, source, target, weekType, data.meetings, data.teacherMap);
+    executeSwap(data.entries, source, target, weekType, data.meetings, data.teacherMap, false, data.leaves);
 
     // 高一/高二：同步关联科目到对周 JSON 数据
     // 信息(单周)<->心理(双周)，美术(单周)<->音乐(双周)

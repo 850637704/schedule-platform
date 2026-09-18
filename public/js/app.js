@@ -1753,6 +1753,8 @@ $('#swap-grid').addEventListener('click', async (e) => {
     } else if (td.classList.contains('cell-swap-target')) {
       swapState.target = null;
       $('#swap-execute-btn').disabled = true;
+      $('#swap-target-teacher-title').textContent = '对调老师课程表';
+      $('#swap-target-teacher-grid').innerHTML = '';
       renderSwapGridState();
     }
   }

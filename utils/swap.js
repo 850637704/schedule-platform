@@ -97,7 +97,7 @@ function checkTeacherMeeting(teacherName, weekday, periodLabel, meetings, teache
  * @param {Array} allEntries - 全量课表条目（含所有周次，用于检查关联科目对周教师冲突）
  * @returns {Object} { source, candidates }
  */
-function computeSwapCandidates(entries, source, weekType, meetings, teacherMap, allEntries) {
+function computeSwapCandidates(entries, source, weekType, meetings, teacherMap, allEntries, leaves) {
   // 找到源课程条目
   const sourceEntry = entries.find(e =>
     e.class === source.class &&
@@ -130,7 +130,7 @@ function computeSwapCandidates(entries, source, weekType, meetings, teacherMap, 
       continue;
     }
 
-    const result = checkSwappable(entries, sourceEntry, target, weekType, meetings, teacherMeetings, allEntries || entries);
+    const result = checkSwappable(entries, sourceEntry, target, weekType, meetings, teacherMeetings, allEntries || entries, leaves);
     candidates.push({
       class: target.class,
       teacher: target.teacher,
@@ -150,7 +150,7 @@ function computeSwapCandidates(entries, source, weekType, meetings, teacherMap, 
  * 条件：时段类型相同 + 源教师在目标时段空闲 + 目标教师在源时段空闲 + 双方无会议冲突
  * 高一/高二：如果涉及关联科目（信息/心理、美术/音乐），还需检查对周关联教师的冲突
  */
-function checkSwappable(entries, source, target, weekType, meetings, teacherMeetings, allEntries) {
+function checkSwappable(entries, source, target, weekType, meetings, teacherMeetings, allEntries, leaves) {
   // 0. 课程时段类型必须相同（早自习/白课/晚自习 不可互调）
   const sourceType = getPeriodType(source.period, source.periodLabel);
   const targetType = getPeriodType(target.period, target.periodLabel);
@@ -220,7 +220,29 @@ function checkSwappable(entries, source, target, weekType, meetings, teacherMeet
     };
   }
 
-  // 5. 高一/高二：对周教师冲突检查
+  // 5. 教师调休检查（调休仅在单周有效，通用课程在单周也存在）
+  if (leaves && leaves.length && (weekType === '单周' || weekType === '通用') && source.teacher !== target.teacher) {
+    const leaveSet = new Set();
+    for (const l of leaves) {
+      if (l.teacher && l.weekday) leaveSet.add(`${l.teacher}|${l.weekday}`);
+    }
+    // 源教师调到目标日后是否在调休日有课
+    if (leaveSet.has(`${source.teacher}|${target.weekday}`)) {
+      return {
+        swappable: false,
+        reason: `教师「${source.teacher}」在${WEEKDAY_NAMES[target.weekday]}调休，不可调课`
+      };
+    }
+    // 目标教师调到源日后是否在调休日有课
+    if (leaveSet.has(`${target.teacher}|${source.weekday}`)) {
+      return {
+        swappable: false,
+        reason: `教师「${target.teacher}」在${WEEKDAY_NAMES[source.weekday]}调休，不可调课`
+      };
+    }
+  }
+
+  // 6. 高一/高二：对周教师冲突检查
   // 高一/高二调课时，对周也会发生同样的交换，需确保对周涉及的教师都没有冲突
   // 高三只改当前周次，不同步对周，跳过此检查
   const grade = getGradeLevel(source.class);
@@ -241,6 +263,28 @@ function checkSwappable(entries, source, target, weekType, meetings, teacherMeet
       e.period === target.period &&
       (e.weekType || '通用') === otherWeekType
     );
+    // 对周调休检查：当对周为单周时，检查对周教师调休
+    if (leaves && leaves.length && otherWeekType === '单周') {
+      const leaveSet = new Set();
+      for (const l of leaves) {
+        if (l.teacher && l.weekday) leaveSet.add(`${l.teacher}|${l.weekday}`);
+      }
+      if (srcInOtherWeek && srcInOtherWeek.teacher && tgtInOtherWeek && tgtInOtherWeek.teacher &&
+          srcInOtherWeek.teacher !== tgtInOtherWeek.teacher) {
+        if (leaveSet.has(`${srcInOtherWeek.teacher}|${target.weekday}`)) {
+          return {
+            swappable: false,
+            reason: `教师「${srcInOtherWeek.teacher}」在${WEEKDAY_NAMES[target.weekday]}调休，不可调课`
+          };
+        }
+        if (leaveSet.has(`${tgtInOtherWeek.teacher}|${source.weekday}`)) {
+          return {
+            swappable: false,
+            reason: `教师「${tgtInOtherWeek.teacher}」在${WEEKDAY_NAMES[source.weekday]}调休，不可调课`
+          };
+        }
+      }
+    }
     if (srcInOtherWeek && srcInOtherWeek.teacher) {
       // 检查 srcInOtherWeek.teacher 调到对周目标位置后是否冲突
       // 若对周目标位置原教师与对周源位置原教师为同一人，则调课后对周无变化，跳过此检查
@@ -300,7 +344,7 @@ function checkSwappable(entries, source, target, weekType, meetings, teacherMeet
 /**
  * 执行对调：交换两节课的 subject 和 teacher
  */
-function executeSwap(entries, source, target, weekType, meetings, teacherMap, skipCheck) {
+function executeSwap(entries, source, target, weekType, meetings, teacherMap, skipCheck, leaves) {
   const sIdx = entries.findIndex(e =>
     e.class === source.class &&
     e.weekday === source.weekday &&
@@ -320,7 +364,7 @@ function executeSwap(entries, source, target, weekType, meetings, teacherMap, sk
   // skipCheck=true 时跳过（对周同步交换，第一次调用已做过完整校验）
   if (!skipCheck) {
     const teacherMeetings = buildTeacherMeetings(teacherMap);
-    const check = checkSwappable(entries, entries[sIdx], entries[tIdx], weekType, meetings, teacherMeetings, entries);
+    const check = checkSwappable(entries, entries[sIdx], entries[tIdx], weekType, meetings, teacherMeetings, entries, leaves);
     if (!check.swappable) throw new Error('对调校验失败：' + check.reason);
   }
 
