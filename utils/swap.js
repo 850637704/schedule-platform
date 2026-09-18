@@ -5,6 +5,14 @@ const { MEETING_SUBJECT_MAP } = require('./parser');
 
 const WEEKDAY_NAMES = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周天'];
 
+// 根据班级编号判断年级（24xx=高三, 25xx=高二, 26xx=高一）
+function getGradeLevel(classCode) {
+  const match = String(classCode).match(/^(\d{2})/);
+  if (!match) return null;
+  const enrollYear = 2000 + Number(match[1]);
+  return new Date().getFullYear() - enrollYear + 1;
+}
+
 // 单双周关联科目映射：信息(单周)<->心理(双周)，美术(单周)<->音乐(双周)
 const PAIRED_SUBJECTS = {
   '信息': '心理', '心理': '信息',
@@ -214,7 +222,9 @@ function checkSwappable(entries, source, target, weekType, meetings, teacherMeet
 
   // 5. 高一/高二：对周教师冲突检查
   // 高一/高二调课时，对周也会发生同样的交换，需确保对周涉及的教师都没有冲突
-  if (allEntries && weekType !== '通用') {
+  // 高三只改当前周次，不同步对周，跳过此检查
+  const grade = getGradeLevel(source.class);
+  if (allEntries && weekType !== '通用' && grade !== 3) {
     const otherWeekType = weekType === '单周' ? '双周' : '单周';
 
     // 对周源位置的教师（调课后要移到对周目标位置）
