@@ -1262,15 +1262,19 @@ async function initAuth() {
 function updateAuthUI() {
   const btn = $('#login-btn');
   const accountsNav = $('.nav-item[data-view="accounts"]');
+  const statsNav = $('.nav-item[data-view="stats"]');
   if (currentUser) {
     btn.textContent = currentUser.type === 'super' ? '超级管理员' : '管理员';
     // 仅超管显示账号管理导航
     if (accountsNav) {
       accountsNav.style.display = currentUser.type === 'super' ? '' : 'none';
     }
+    // 课时统计仅登录用户可见
+    if (statsNav) statsNav.style.display = '';
   } else {
     btn.textContent = '登录';
     if (accountsNav) accountsNav.style.display = 'none';
+    if (statsNav) statsNav.style.display = 'none';
   }
 }
 
