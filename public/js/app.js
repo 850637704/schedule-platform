@@ -1531,9 +1531,10 @@ $('#swap-undo-btn').addEventListener('click', undoSwapAction);
 
 // 调课视图加载
 async function loadSwapView() {
-  const data = await api('/api/teachers' + weekParam());
-  if (data.error) { $('#swap-grid').innerHTML = noDataHtml(); return; }
-  const all = data.teachers.slice().sort();
+  // 加载教师列表（教师模式用）
+  const tData = await api('/api/teachers' + weekParam());
+  if (tData.error) { $('#swap-grid').innerHTML = noDataHtml(); return; }
+  const all = tData.teachers.slice().sort();
   initCombobox('swap-teacher-select', all, lastTeacherSel, async (val) => {
     lastTeacherSel = val;
     swapState.teacher = val;
@@ -1544,13 +1545,24 @@ async function loadSwapView() {
     if (val) await onSwapTeacherSelected(val);
     else { resetSwapState(); $('#swap-grid').innerHTML = ''; }
   }, groupTeachers);
-  // 如果有上次选中，立即触发
+  // 同步当前选中的教师到 swapState
   if (lastTeacherSel && all.includes(lastTeacherSel)) {
     swapState.teacher = lastTeacherSel;
-    await onSwapTeacherSelected(lastTeacherSel);
-  } else {
-    $('#swap-grid').innerHTML = '';
   }
+  // 加载班级列表（班级模式用）
+  const cData = await api('/api/classes' + weekParam());
+  if (!cData.error) {
+    const sel = $('#swap-class-select');
+    sel.innerHTML = cData.classes.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('');
+    if (swapState.class && cData.classes.includes(swapState.class)) {
+      sel.value = swapState.class;
+    } else if (cData.classes.length) {
+      swapState.class = cData.classes[0];
+      sel.value = cData.classes[0];
+    }
+  }
+  // 根据当前模式刷新课表网格
+  await loadSwapGrid();
   // 加载调课记录
   loadSwapRecords();
 }
