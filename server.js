@@ -878,13 +878,14 @@ app.post('/api/swap/execute', requireLogin, async (req, res) => {
   const { source, target, week } = req.body;
   if (!source || !target) return res.status(400).json({ error: '缺少源课程或目标课程' });
   const weekType = week || (data.weeks || ['通用'])[0];
-  // 备份当前 entries（用于撤销）
-  data._lastBackup = {
+  // 备份当前 entries（用于多步撤销）
+  if (!data._undoStack) data._undoStack = [];
+  data._undoStack.push({
     weekType,
     entries: JSON.parse(JSON.stringify(data.entries)),
     source: { ...source },
     target: { ...target }
-  };
+  });
   try {
     executeSwap(data.entries, source, target, weekType, data.meetings, data.teacherMap);
 
@@ -944,7 +945,7 @@ app.post('/api/swap/execute', requireLogin, async (req, res) => {
     const targetTeacherEntries = targetTeacher ? getTeacherEntries(entries, targetTeacher, weekType) : [];
     res.json({
       ok: true,
-      canUndo: true,
+      canUndo: (data._undoStack && data._undoStack.length > 0),
       classEntries,
       periodLabels,
       sourceTeacherEntries,
@@ -962,12 +963,12 @@ app.post('/api/swap/execute', requireLogin, async (req, res) => {
 app.post('/api/swap/undo', requireLogin, async (req, res) => {
   const data = loadData(req);
   if (!data) return res.status(404).json({ error: '无课表数据' });
-  if (!data._lastBackup) return res.status(400).json({ error: '无可撤销的操作' });
-  const weekType = req.body.week || data._lastBackup.weekType;
-  const backup = data._lastBackup;
+  if (!data._undoStack || data._undoStack.length === 0) return res.status(400).json({ error: '无可撤销的操作' });
+  const weekType = req.body.week || data._undoStack[data._undoStack.length - 1].weekType;
+  const backup = data._undoStack.pop();
   // 恢复备份数据
   data.entries = backup.entries;
-  delete data._lastBackup;
+  if (data._undoStack.length === 0) delete data._undoStack;
   saveScheduleData(req, data);
 
   // 自动运行冲突分析
@@ -996,7 +997,7 @@ app.post('/api/swap/undo', requireLogin, async (req, res) => {
 
   const { entries } = filterByWeek(data, weekType);
   const periodLabels = getPeriodLabels(entries);
-  res.json({ ok: true, canUndo: false, entries, periodLabels, conflicts });
+  res.json({ ok: true, canUndo: (data._undoStack && data._undoStack.length > 0), entries, periodLabels, conflicts });
 });
 
 // 获取调课记录

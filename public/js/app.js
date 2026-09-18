@@ -1939,8 +1939,8 @@ async function executeSwapAction() {
     });
     if (result.error) { toast(result.error, 'error'); return; }
     toast('对调成功' + (result.conflicts && result.conflicts.total > 0 ? `，检测到 ${result.conflicts.total} 个冲突` : ''), result.conflicts && result.conflicts.total > 0 ? 'warning' : 'success');
-    swapState.canUndo = true;
-    $('#swap-undo-btn').disabled = false;
+    swapState.canUndo = result.canUndo !== false;
+    $('#swap-undo-btn').disabled = !swapState.canUndo;
     // 刷新调课网格
     if (swapState.mode === 'teacher') {
       await onSwapTeacherSelected(swapState.teacher);
@@ -1981,8 +1981,8 @@ async function undoSwapAction() {
   });
   if (result.error) { toast(result.error, 'error'); return; }
   toast('已撤销' + (result.conflicts && result.conflicts.total > 0 ? `，检测到 ${result.conflicts.total} 个冲突` : ''), result.conflicts && result.conflicts.total > 0 ? 'warning' : 'success');
-  swapState.canUndo = false;
-  $('#swap-undo-btn').disabled = true;
+  swapState.canUndo = result.canUndo !== false;
+  $('#swap-undo-btn').disabled = !swapState.canUndo;
   // 刷新调课记录列表
   loadSwapRecords();
   // 刷新调课网格
