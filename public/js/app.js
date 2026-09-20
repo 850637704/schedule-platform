@@ -275,6 +275,100 @@ async function loadOverview() {
     exportTeachers.textContent = `导出${weekLabel}全部教师课表`;
     exportTeachers.onclick = () => window.open(exportUrl('/api/export/teachers'), '_blank');
   }
+  const exportTAExcel = $('#export-teacher-arrangement-excel');
+  if (exportTAExcel) {
+    exportTAExcel.onclick = () => window.open(exportUrl('/api/export/teacher-arrangement'), '_blank');
+  }
+  const exportTAImg = $('#export-teacher-arrangement-img');
+  if (exportTAImg) {
+    exportTAImg.onclick = () => exportTeacherArrangementImage();
+  }
+}
+
+// 导出教师安排表为图片（PNG）
+function exportTeacherArrangementImage() {
+  const table = document.querySelector('#teacher-arrangement table');
+  if (!table) {
+    alert('无教师安排数据，无法导出');
+    return;
+  }
+  const rows = table.querySelectorAll('tr');
+  if (!rows.length) return;
+
+  const headerCells = rows[0].querySelectorAll('th, td');
+  const colCount = headerCells.length;
+  const rowCount = rows.length;
+
+  // 画布参数
+  const cellH = 32;
+  const cellW = 90;
+  const headerH = 36;
+  const fontSize = 13;
+  const padding = 6;
+  const canvasW = colCount * cellW + padding * 2;
+  const canvasH = rowCount * cellH + padding * 2 + 30; // 顶部留标题
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvasW;
+  canvas.height = canvasH;
+  const ctx = canvas.getContext('2d');
+
+  // 背景
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 标题
+  ctx.fillStyle = '#333333';
+  ctx.font = `bold 18px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('教师安排', canvas.width / 2, 18);
+
+  ctx.font = `${fontSize}px sans-serif`;
+
+  for (let r = 0; r < rowCount; r++) {
+    const cells = rows[r].querySelectorAll('th, td');
+    const isHeader = r === 0;
+    const y = padding + 30 + r * cellH;
+    for (let c = 0; c < colCount; c++) {
+      const x = padding + c * cellW;
+      // 背景色
+      if (isHeader) {
+        ctx.fillStyle = '#4472C4';
+      } else if (r % 2 === 0) {
+        ctx.fillStyle = '#D9E2F3';
+      } else {
+        ctx.fillStyle = '#FFFFFF';
+      }
+      ctx.fillRect(x, y, cellW, cellH);
+
+      // 边框
+      ctx.strokeStyle = '#999999';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, cellW, cellH);
+
+      // 文字
+      const text = cells[c] ? cells[c].textContent.trim() : '';
+      ctx.fillStyle = isHeader ? '#FFFFFF' : '#333333';
+      ctx.font = isHeader ? `bold ${fontSize}px sans-serif` : `${fontSize}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // 截断过长文字
+      let display = text;
+      const maxWidth = cellW - 8;
+      while (ctx.measureText(display).width > maxWidth && display.length > 1) {
+        display = display.slice(0, -1);
+      }
+      if (display !== text) display = display.slice(0, -1) + '…';
+      ctx.fillText(display, x + cellW / 2, y + cellH / 2);
+    }
+  }
+
+  // 下载
+  const link = document.createElement('a');
+  link.download = '教师安排.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
 }
 
 function statCard(num, label, type = 'primary') {

@@ -453,4 +453,80 @@ async function exportClassStatistics(stats) {
   return buffer;
 }
 
-module.exports = { exportClassSchedules, exportTeacherSchedules, exportSingleClass, exportSingleTeacher, exportTeacherStatistics, exportClassStatistics };
+// 导出教师安排表（班级 | 班主任 | 各科目教师）
+async function exportTeacherArrangement(teacherMap, subjects) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = '课表管理平台';
+  const ws = wb.addWorksheet('教师安排');
+
+  // 表头
+  ws.getCell(1, 1).value = '班级';
+  ws.getCell(1, 2).value = '班主任';
+  subjects.forEach((s, i) => {
+    ws.getCell(1, 3 + i).value = s;
+  });
+
+  // 样式：表头
+  for (let c = 1; c <= 2 + subjects.length; c++) {
+    const cell = ws.getCell(1, c);
+    cell.font = { bold: true, color: { argb: 'FFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '4472C4' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+  }
+  ws.getRow(1).height = 24;
+
+  // 数据行
+  const codes = Object.keys(teacherMap).filter(c => c).sort();
+  codes.forEach((code, r) => {
+    const info = teacherMap[code];
+    const display = /班$/.test(code) ? code : code + '班';
+    ws.getCell(r + 2, 1).value = display;
+    ws.getCell(r + 2, 2).value = info._班主任 || '';
+    subjects.forEach((s, i) => {
+      const val = info[s];
+      ws.getCell(r + 2, 3 + i).value = val || '—';
+    });
+  });
+
+  // 列宽
+  ws.getColumn(1).width = 12;
+  ws.getColumn(2).width = 12;
+  subjects.forEach((s, i) => {
+    ws.getColumn(3 + i).width = Math.max(10, Math.min(16, s.length * 2 + 4));
+  });
+
+  // 边框
+  const lastRow = codes.length + 1;
+  const lastCol = 2 + subjects.length;
+  for (let r = 1; r <= lastRow; r++) {
+    for (let c = 1; c <= lastCol; c++) {
+      const cell = ws.getCell(r, c);
+      cell.border = {
+        top: { style: 'thin', color: { argb: '000000' } },
+        left: { style: 'thin', color: { argb: '000000' } },
+        bottom: { style: 'thin', color: { argb: '000000' } },
+        right: { style: 'thin', color: { argb: '000000' } }
+      };
+      if (r > 1) {
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      }
+    }
+  }
+
+  // 交替行背景色
+  for (let r = 2; r <= lastRow; r++) {
+    if (r % 2 === 1) {
+      for (let c = 1; c <= lastCol; c++) {
+        ws.getCell(r, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'D9E2F3' } };
+      }
+    }
+  }
+
+  ws.getRow(1).height = 24;
+  for (let r = 2; r <= lastRow; r++) ws.getRow(r).height = 20;
+
+  const buffer = await wb.xlsx.writeBuffer();
+  return buffer;
+}
+
+module.exports = { exportClassSchedules, exportTeacherSchedules, exportSingleClass, exportSingleTeacher, exportTeacherStatistics, exportClassStatistics, exportTeacherArrangement };

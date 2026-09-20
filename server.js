@@ -11,7 +11,8 @@ const { analyzeConflicts, getStats } = require('./utils/analyzer');
 const { teacherStatistics, classStatistics } = require('./utils/statistics');
 const {
   exportClassSchedules, exportTeacherSchedules,
-  exportSingleClass, exportSingleTeacher, exportTeacherStatistics, exportClassStatistics
+  exportSingleClass, exportSingleTeacher, exportTeacherStatistics, exportClassStatistics,
+  exportTeacherArrangement
 } = require('./utils/exporter');
 const {
   computeSwapCandidates, executeSwap, getTeacherEntries, getPeriodLabels
@@ -587,6 +588,34 @@ app.get('/api/export/teachers', async (req, res) => {
     const globalPeriodLabels = getPeriodLabels(entries);
     const buffer = await exportTeacherSchedules(entries, data.meetings, data.teacherMap, data.leaves, globalPeriodLabels, week);
     setDownloadHeader(res, `教师课表-${week}.xlsx`);
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    res.status(500).json({ error: '导出失败：' + err.message });
+  }
+});
+
+// 导出教师安排表（Excel）
+app.get('/api/export/teacher-arrangement', async (req, res) => {
+  const data = loadData(req);
+  if (!data) return res.status(404).json({ error: '无课表数据' });
+  try {
+    const teacherMap = data.teacherMap || {};
+    let subjects = data.teacherSubjects || [];
+    // 如果没有科目列表，从 teacherMap 推断
+    if (!subjects.length) {
+      const subjectSet = new Set();
+      for (const info of Object.values(teacherMap)) {
+        for (const key of Object.keys(info)) {
+          if (key !== '_班主任' && key !== '_grade') subjectSet.add(key);
+        }
+      }
+      subjects = [...subjectSet];
+    }
+    if (!Object.keys(teacherMap).length) {
+      return res.status(400).json({ error: '无教师安排数据' });
+    }
+    const buffer = await exportTeacherArrangement(teacherMap, subjects);
+    setDownloadHeader(res, '教师安排.xlsx');
     res.send(Buffer.from(buffer));
   } catch (err) {
     res.status(500).json({ error: '导出失败：' + err.message });
