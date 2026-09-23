@@ -159,6 +159,38 @@ app.get('/api/me', (req, res) => {
   }
 });
 
+// ============ Logo 上传 API（仅超管） ============
+
+const logoUpload = multer({
+  storage: multer.diskStorage({
+    destination: path.join(__dirname, 'public'),
+    filename: (req, file, cb) => {
+      const ext = path.extname(fixFilename(file.originalname)) || '.png';
+      cb(null, `logo${ext}`);
+    }
+  }),
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(fixFilename(file.originalname)).toLowerCase();
+    if (/\.(png|jpg|jpeg|gif|webp|svg)$/.test(ext)) cb(null, true);
+    else cb(new Error('仅支持图片文件（png/jpg/jpeg/gif/webp/svg）'));
+  },
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
+
+app.post('/api/upload-logo', requireSuperAdmin, logoUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '请上传图片文件' });
+  // 删除旧 logo 文件（非当前上传的）
+  const ext = path.extname(req.file.filename);
+  const publicDir = path.join(__dirname, 'public');
+  fs.readdirSync(publicDir).forEach(f => {
+    if (/^logo\.(png|jpg|jpeg|gif|webp|svg)$/.test(f) && f !== req.file.filename) {
+      try { fs.unlinkSync(path.join(publicDir, f)); } catch {}
+    }
+  });
+  // 前端加时间戳防止缓存
+  res.json({ ok: true, path: `/${req.file.filename}?t=${Date.now()}` });
+});
+
 // ============ 账号管理 API（仅超管） ============
 
 // 获取管理员列表
@@ -631,7 +663,10 @@ app.get('/api/export/class/:className', async (req, res) => {
     const { entries, week } = filterByWeek(data, req.query.week);
     const globalPeriodLabels = getPeriodLabels(entries);
     const buffer = await exportSingleClass(entries, className, data.teacherMap, globalPeriodLabels, data.schedule8);
-    setDownloadHeader(res, `${className}课表-${week}.xlsx`);
+    // 高三班级单双周课表不同，标明周次；高一高二单双周相同，标"单双周"
+    const isGrade3 = /^24\d{2}/.test(className) || /^高三/.test(className);
+    const weekLabel = isGrade3 ? week : '单双周';
+    setDownloadHeader(res, `${className}_${weekLabel}_课表.xlsx`);
     res.send(Buffer.from(buffer));
   } catch (err) {
     res.status(500).json({ error: '导出失败：' + err.message });
@@ -647,7 +682,11 @@ app.get('/api/export/teacher/:teacherName', async (req, res) => {
     const { entries, week } = filterByWeek(data, req.query.week);
     const globalPeriodLabels = getPeriodLabels(entries);
     const buffer = await exportSingleTeacher(entries, teacherName, data.meetings, data.teacherMap, data.leaves, globalPeriodLabels, week, data.schedule8);
-    setDownloadHeader(res, `${teacherName}课表-${week}.xlsx`);
+    // 高三教师单双周课表不同，标明周次；高一高二教师单双周相同，标"单双周"
+    const teacherEntries = data.entries.filter(e => e.teacher === teacherName);
+    const isGrade3 = teacherEntries.some(e => /^24\d{2}/.test(e.class || '') || /^高三/.test(e.class || ''));
+    const weekLabel = isGrade3 ? week : '单双周';
+    setDownloadHeader(res, `${teacherName}_${weekLabel}_课表.xlsx`);
     res.send(Buffer.from(buffer));
   } catch (err) {
     res.status(500).json({ error: '导出失败：' + err.message });

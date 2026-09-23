@@ -68,7 +68,7 @@ async function exportElementAsImage(elements, filename) {
   elements.forEach(el => {
     if (!el || !el.innerHTML) return;
     const clone = el.cloneNode(true);
-    clone.style.overflow = 'visible';
+    clone.style.overflow = 'hidden';
     clone.style.width = el.offsetWidth + 'px';
     // 去除 sticky 定位（html2canvas 对 sticky 支持不佳）
     clone.querySelectorAll('th, td').forEach(cell => { cell.style.position = 'static'; });
@@ -80,14 +80,16 @@ async function exportElementAsImage(elements, filename) {
   try {
     toast('正在生成图片...', 'info');
     const canvas = await html2canvas(container, {
-      backgroundColor: '#ffffff',
+      backgroundColor: null,
       scale: 2,
       useCORS: true,
       logging: false
     });
+    // 应用圆角到整个导出图片
+    const roundedCanvas = roundCanvasCorners(canvas, 16);
     const link = document.createElement('a');
     link.download = filename + '.png';
-    link.href = canvas.toDataURL('image/png');
+    link.href = roundedCanvas.toDataURL('image/png');
     link.click();
     toast('图片导出成功', 'success');
   } catch (err) {
@@ -95,6 +97,29 @@ async function exportElementAsImage(elements, filename) {
   } finally {
     document.body.removeChild(container);
   }
+}
+
+// 将 canvas 四角裁剪为圆角，返回新的 canvas（透明背景）
+function roundCanvasCorners(source, radius) {
+  const { width, height } = source;
+  const out = document.createElement('canvas');
+  out.width = width;
+  out.height = height;
+  const ctx = out.getContext('2d');
+  ctx.beginPath();
+  ctx.moveTo(radius, 0);
+  ctx.lineTo(width - radius, 0);
+  ctx.quadraticCurveTo(width, 0, width, radius);
+  ctx.lineTo(width, height - radius);
+  ctx.quadraticCurveTo(width, height, width - radius, height);
+  ctx.lineTo(radius, height);
+  ctx.quadraticCurveTo(0, height, 0, height - radius);
+  ctx.lineTo(0, radius);
+  ctx.quadraticCurveTo(0, 0, radius, 0);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(source, 0, 0);
+  return out;
 }
 
 // ===== 导航 =====
@@ -313,6 +338,27 @@ function exportTeacherArrangementImage() {
   canvas.height = canvasH;
   const ctx = canvas.getContext('2d');
 
+  const radius = 8;
+  const tableX = padding;
+  const tableY = padding + 30;
+  const tableW = colCount * cellW;
+  const tableH = rowCount * cellH;
+
+  // 圆角矩形路径工具
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
   // 背景
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -325,6 +371,11 @@ function exportTeacherArrangementImage() {
   ctx.fillText('教师安排', canvas.width / 2, 18);
 
   ctx.font = `${fontSize}px sans-serif`;
+
+  // 表格区域裁剪为圆角矩形
+  ctx.save();
+  roundRect(ctx, tableX, tableY, tableW, tableH, radius);
+  ctx.clip();
 
   for (let r = 0; r < rowCount; r++) {
     const cells = rows[r].querySelectorAll('th, td');
@@ -364,10 +415,19 @@ function exportTeacherArrangementImage() {
     }
   }
 
-  // 下载
+  ctx.restore();
+
+  // 表格外框圆角边框
+  roundRect(ctx, tableX + 0.5, tableY + 0.5, tableW - 1, tableH - 1, radius);
+  ctx.strokeStyle = '#999999';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // 下载（应用整体圆角）
+  const roundedCanvas = roundCanvasCorners(canvas, 16);
   const link = document.createElement('a');
   link.download = '教师安排.png';
-  link.href = canvas.toDataURL('image/png');
+  link.href = roundedCanvas.toDataURL('image/png');
   link.click();
 }
 
@@ -502,7 +562,9 @@ async function loadClassList() {
     exportImgBtn.addEventListener('click', () => {
       const cur = $('#class-select')._value || '';
       if (!cur) { toast('请先选择班级', 'error'); return; }
-      exportElementAsImage([$('#class-teachers'), $('#class-grid')], `${cur}_课表`);
+      const isGrade3 = /^24\d{2}/.test(cur) || /^高三/.test(cur);
+      const weekLabel = isGrade3 ? (currentWeek ? `_${currentWeek}` : '') : '_单双周';
+      exportElementAsImage([$('#class-teachers'), $('#class-grid')], `${cur}${weekLabel}_课表`);
     });
   }
   const all = data.classes.slice().sort();
@@ -641,7 +703,18 @@ async function loadTeacherList() {
     exportImgBtn.addEventListener('click', () => {
       const cur = $('#teacher-select')._value || '';
       if (!cur) { toast('请先选择教师', 'error'); return; }
-      exportElementAsImage([$('#teacher-grid')], `${cur}_课表`);
+      // 高三教师单双周课表不同，需标明周次；高一高二教师单双周相同，标"单双周"
+      const grid = $('#teacher-grid');
+      const classes = new Set();
+      grid.querySelectorAll('.cell-class').forEach(el => {
+        const c = el.textContent.trim();
+        if (c) classes.add(c);
+      });
+      const isGrade3 = [...classes].some(c => /^24\d{2}/.test(c) || /^高三/.test(c));
+      const weekLabel = isGrade3
+        ? (currentWeek ? `_${currentWeek}` : '')
+        : '_单双周';
+      exportElementAsImage([$('#teacher-grid')], `${cur}${weekLabel}_课表`);
     });
   }
   const all = data.teachers.slice().sort();
@@ -1357,6 +1430,7 @@ function updateAuthUI() {
   const btn = $('#login-btn');
   const accountsNav = $('.nav-item[data-view="accounts"]');
   const statsNav = $('.nav-item[data-view="stats"]');
+  const logoIcon = $('.logo-icon');
   if (currentUser) {
     btn.textContent = currentUser.type === 'super' ? '超级管理员' : '管理员';
     // 仅超管显示账号管理导航
@@ -1365,11 +1439,56 @@ function updateAuthUI() {
     }
     // 课时统计仅登录用户可见
     if (statsNav) statsNav.style.display = '';
+    // 超管可点击 logo 上传更换图标
+    if (logoIcon) {
+      if (currentUser.type === 'super') {
+        logoIcon.style.cursor = 'pointer';
+        logoIcon.title = '点击更换图标';
+        logoIcon.onclick = () => uploadLogo();
+      } else {
+        logoIcon.style.cursor = '';
+        logoIcon.title = '';
+        logoIcon.onclick = null;
+      }
+    }
   } else {
     btn.textContent = '登录';
     if (accountsNav) accountsNav.style.display = 'none';
     if (statsNav) statsNav.style.display = 'none';
+    if (logoIcon) {
+      logoIcon.style.cursor = '';
+      logoIcon.title = '';
+      logoIcon.onclick = null;
+    }
   }
+}
+
+// 超管上传更换 logo 图标
+async function uploadLogo() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml';
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast('图片大小不能超过 5MB', 'error');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch('/api/upload-logo', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.error) { toast(data.error, 'error'); return; }
+      const logoIcon = $('.logo-icon');
+      if (logoIcon && data.path) logoIcon.src = data.path;
+      toast('图标更换成功', 'success');
+    } catch (e) {
+      toast('上传失败：' + e.message, 'error');
+    }
+  };
+  input.click();
 }
 
 // 登录弹窗
